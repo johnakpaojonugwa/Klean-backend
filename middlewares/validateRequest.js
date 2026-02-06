@@ -200,6 +200,50 @@ export const validateBranchCreation = (req, res, next) => {
     next();
 };
 
+export const validateBranchUpdate = (req, res, next) => {
+    const { name, address, email, contactNumber, servicesOffered } = req.body || {};
+    const errors = [];
+
+    // Only validate NAME if it's being updated
+    if (name !== undefined && name.toString().trim().length < 2) {
+        errors.push("Branch name must be at least 2 characters");
+    }
+
+    // Only validate ADDRESS if it's being updated
+    if (address !== undefined) {
+        if (typeof address !== 'object' || !address.street || !address.city || !address.state) {
+            errors.push("To update address, provide complete street, city, and state");
+        }
+    }
+
+    // Only validate EMAIL if it's being updated
+    if (email !== undefined && !email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+        errors.push("Valid email is required");
+    }
+
+    // Only validate PHONE if it's being updated
+    if (contactNumber !== undefined && !contactNumber.match(/^\+?[0-9]{7,15}$/)) {
+        errors.push("Valid phone number (7-15 digits) is required");
+    }
+
+    // Only validate SERVICES if they are being updated
+    if (servicesOffered !== undefined) {
+        if (!Array.isArray(servicesOffered) || servicesOffered.length === 0) {
+            errors.push("At least one service must be offered");
+        }
+    }
+
+    if (errors.length > 0) {
+        return res.status(400).json({
+            success: false,
+            message: "Update validation failed",
+            errors
+        });
+    }
+
+    next();
+};
+
 export const validatePaginationParams = (req, res, next) => {
     const { page, limit } = req.query;
 
