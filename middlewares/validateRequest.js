@@ -166,7 +166,7 @@ export const validatePayrollCreation = (req, res, next) => {
 };
 
 export const validateBranchCreation = (req, res, next) => {
-    const { name, address, email, contactNumber, branchCode, servicesOffered } = req.body || {};
+    const { name, address, email, contactNumber, servicesOffered } = req.body || {};
     const errors = [];
 
     if (!name || name.toString().trim().length < 2) {
@@ -183,10 +183,6 @@ export const validateBranchCreation = (req, res, next) => {
 
     if (!contactNumber || !contactNumber.match(/^\+?[0-9]{7,15}$/)) {
         errors.push("Valid phone number (7-15 digits) is required");
-    }
-
-    if (!branchCode || branchCode.toString().trim().length === 0) {
-        errors.push("Branch code is required");
     }
 
     if (!Array.isArray(servicesOffered) || servicesOffered.length === 0) {
