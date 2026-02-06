@@ -25,7 +25,9 @@ const branchSchema = new mongoose.Schema({
 
     branchCode: {
         type: String,
-        required: true,
+        required: function () {
+            return !this.name;
+        },
         unique: true,
         uppercase: true,
         trim: true,
