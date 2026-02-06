@@ -1,0 +1,81 @@
+config:
+  target: "http://localhost:3000"
+  phases:
+    - duration: 30
+      arrivalRate: 1
+      name: "Starting"
+    - duration: 120
+      rampUp: 300
+      name: "Ramp up to extreme load - 300 req/s"
+    - duration: 60
+      arrivalRate: 300
+      name: "Sustained extreme load"
+    - duration: 30
+      rampDown: 300
+      name: "Cool down"
+  
+  defaults:
+    headers:
+      User-Agent: "Stress Test Bot"
+      Content-Type: "application/json"
+  
+  timeout: 10
+  processor: "./tests/load/processor.js"
+
+scenarios:
+  - name: "Database Stress Test"
+    weight: 40
+    flow:
+      - loop:
+          - get:
+              url: "/api/v1/orders?page={{ $randomNumber(1, 100) }}&limit=50"
+              headers:
+                Authorization: "Bearer stress-test-token"
+              expect:
+                - statusCode: [200, 401, 400]
+        count: 5
+
+  - name: "Concurrent Write Test"
+    weight: 30
+    flow:
+      - loop:
+          - patch:
+              url: "/api/v1/inventory/{{ $randomString(24) }}/adjust"
+              headers:
+                Authorization: "Bearer stress-test-token"
+              json:
+                amount: "{{ $randomNumber(1, 100) }}"
+                changeType: "RESTOCK"
+                reason: "Stress test"
+              expect:
+                - statusCode: [200, 400, 404]
+        count: 3
+
+  - name: "Connection Pool Test"
+    weight: 20
+    flow:
+      - get:
+          url: "/api/v1/health"
+          expect:
+            - statusCode: 200
+
+  - name: "Large Payload Test"
+    weight: 10
+    flow:
+      - post:
+          url: "/api/v1/orders"
+          headers:
+            Authorization: "Bearer stress-test-token"
+          json:
+            customerId: "{{ $randomString(24) }}"
+            branchId: "{{ $randomString(24) }}"
+            items:
+              - serviceName: "BULK_SERVICE"
+                quantity: 1000
+                unitPrice: 999.99
+            description: "Large payload test with many items"
+          expect:
+            - statusCode: [201, 400, 401]
+
+defaults:
+  timeout: 5

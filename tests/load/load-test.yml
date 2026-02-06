@@ -1,0 +1,107 @@
+config:
+  target: "http://localhost:3000"
+  phases:
+    - duration: 60
+      arrivalRate: 10
+      name: "Warm up"
+    - duration: 120
+      arrivalRate: 50
+      name: "Ramp up to medium load"
+    - duration: 120
+      arrivalRate: 100
+      name: "High load"
+    - duration: 60
+      arrivalRate: 50
+      name: "Cool down"
+  defaults:
+    headers:
+      User-Agent: "Artillery Load Test"
+      Content-Type: "application/json"
+  variables:
+    base_url: "http://localhost:3000"
+  # Processor for custom functions
+  processor: "./tests/load/processor.js"
+
+scenarios:
+  - name: "Health Check Spike Test"
+    weight: 30
+    flow:
+      - get:
+          url: "/api/v1/health"
+          expect:
+            - statusCode: 200
+            - contentType: json
+            - hasProperty: success
+
+  - name: "Order Creation Load Test"
+    weight: 25
+    flow:
+      - post:
+          url: "/api/v1/orders"
+          headers:
+            Authorization: "Bearer {{ $randomString(50) }}"
+          json:
+            customerId: "61234567890123456789012a"
+            branchId: "61234567890123456789012b"
+            items:
+              - serviceName: "WASHING"
+                quantity: 5
+                unitPrice: 100
+            dueDate: "2026-02-15"
+          expect:
+            - statusCode: [201, 400, 401]
+
+  - name: "Inventory Management Load Test"
+    weight: 20
+    flow:
+      - get:
+          url: "/api/v1/inventory/branch/61234567890123456789012b?page=1&limit=10"
+          headers:
+            Authorization: "Bearer {{ $randomString(50) }}"
+          expect:
+            - statusCode: [200, 401, 404]
+      
+      - patch:
+          url: "/api/v1/inventory/61234567890123456789012c/adjust"
+          headers:
+            Authorization: "Bearer {{ $randomString(50) }}"
+          json:
+            amount: 10
+            changeType: "RESTOCK"
+            reason: "Load test adjustment"
+          expect:
+            - statusCode: [200, 400, 404]
+
+  - name: "User Listing with Pagination"
+    weight: 15
+    flow:
+      - get:
+          url: "/api/v1/users?page={{ $randomNumber(1, 10) }}&limit={{ $randomNumber(10, 50) }}"
+          headers:
+            Authorization: "Bearer {{ $randomString(50) }}"
+          expect:
+            - statusCode: [200, 401]
+
+  - name: "Analytics Data Retrieval"
+    weight: 10
+    flow:
+      - get:
+          url: "/api/v1/analytics/dashboard"
+          headers:
+            Authorization: "Bearer {{ $randomString(50) }}"
+          expect:
+            - statusCode: [200, 401, 403]
+      
+      - get:
+          url: "/api/v1/analytics/revenue?startDate=2026-01-01&endDate=2026-02-06"
+          headers:
+            Authorization: "Bearer {{ $randomString(50) }}"
+          expect:
+            - statusCode: [200, 401, 403]
+
+after:
+  think: 5
+
+defaults:
+  processor:
+    "beforeRequest": "setCustomHeaders"
