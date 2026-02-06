@@ -39,12 +39,11 @@ const branchSchema = new mongoose.Schema({
     }],
 }, { timestamps: true });
 
-branchSchema.pre('validate', function(next) {
+branchSchema.pre('validate', function() {
     if (!this.branchCode && this.name) {
         // Simple logic to create a code from the name
         this.branchCode = this.name.substring(0, 3).toUpperCase() + "-" + Math.floor(100 + Math.random() * 900);
     }
-    next();
 });
 
 const Branch = mongoose.model("Branch", branchSchema);
