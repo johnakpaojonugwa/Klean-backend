@@ -63,7 +63,7 @@ const limiter = rateLimit({
 
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 5,
+    max: 100,
     message: 'Too many login attempts, please try again later.'
 });
 
@@ -92,73 +92,8 @@ app.use(cors({
     origin: process.env.CORS_ORIGIN || '*',
     credentials: true
 }));
-
-// Performance Optimization Middleware
-app.use(compressionMiddleware);
-app.use(recordResponseTime);
-app.use(performanceMonitor);
-
-// Caching Middleware (for GET requests)
-app.use(cacheMiddleware);
-
-// Cache invalidation middleware (for write operations)
-app.use(invalidateCacheOnWrite);
-
-// Health check route
-app.get('/api/v1/health', (req, res) => {
-    res.status(200).json({ success: true, message: 'Server is running' });
-});
-
-// Swagger Documentation
-app.use('/api/v1/docs', swaggerUi.serve, swaggerUi.setup(specs, {
-    swaggerOptions: {
-        url: '/api/v1/docs.json'
-    }
-}));
-
-// Swagger JSON endpoint
-app.get('/api/v1/docs.json', (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    res.send(specs);
-});
-
-// Performance Stats Endpoint
-app.get('/api/v1/stats/performance', (req, res) => {
-    const stats = getPerformanceStats();
-    res.status(200).json({
-        success: true,
-        data: stats
-    });
-});
-
-// Cache Stats Endpoint
-app.get('/api/v1/stats/cache', (req, res) => {
-    const stats = getCacheStats();
-    res.status(200).json({
-        success: true,
-        data: stats
-    });
-});
-
-// Manual Cache Invalidation Endpoint (admin only)
-app.post('/api/v1/admin/cache/invalidate', (req, res) => {
-    invalidateCacheManually(req, res);
-});
-
 // Connect to database
 connectDB();
-
-// Initialize scheduled jobs
-initializeScheduledJobs();
-
-// Start memory monitoring
-memoryMonitor();
-
-// Initialize database indexes (async, runs in background)
-import { createOptimizedIndexes } from './utils/queryOptimizer.js';
-createOptimizedIndexes().catch(err => {
-    logger.error('Failed to create database indexes:', err);
-});
 
 // Routes
 app.use('/api/v1/auth', authLimiter, authRoutes);
