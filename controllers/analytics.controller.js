@@ -87,19 +87,24 @@ export const getOrderTrends = async (req, res, next) => {
             queryBranchId
         );
 
+        // ✅ Safety: Fallback to empty array if analytics is missing
+        const analyticsData = result?.analytics || [];
+
         const trends = {
-            dailyOrders: result.analytics.map(a => ({
+            dailyOrders: analyticsData.map(a => ({
                 date: a.date,
-                orders: a.totalOrders,
-                revenue: a.totalRevenue
+                orders: a.totalOrders || 0,
+                revenue: a.totalRevenue || 0
             })),
-            statusBreakdown: result.analytics.reduce((acc, a) => {
-                Object.keys(a.ordersByStatus).forEach(status => {
-                    acc[status] = (acc[status] || 0) + a.ordersByStatus[status];
+            statusBreakdown: analyticsData.reduce((acc, a) => {
+                // ✅ Safety: Check if ordersByStatus exists
+                const statusMap = a.ordersByStatus || {};
+                Object.keys(statusMap).forEach(status => {
+                    acc[status] = (acc[status] || 0) + statusMap[status];
                 });
                 return acc;
             }, {}),
-            summary: result.totals
+            summary: result?.totals || { totalOrders: 0, totalRevenue: 0, newCustomers: 0 }
         };
 
         return sendResponse(res, 200, true, "Order trends retrieved", trends);
@@ -114,22 +119,25 @@ export const getRevenueAnalytics = async (req, res, next) => {
         if (!startDate || !endDate) return sendError(res, 400, "Dates are required");
 
         const queryBranchId = getQueryBranchId(req.user, branchId);
-
         const result = await analyticsService.getAnalyticsPeriod(
             new Date(startDate),
             new Date(endDate),
             queryBranchId
         );
 
+        const analyticsData = result?.analytics || [];
+        const totals = result?.totals || { totalRevenue: 0, totalOrders: 0 };
+
         const revenue = {
-            dailyRevenue: result.analytics.map(a => ({
+            dailyRevenue: analyticsData.map(a => ({
                 date: a.date,
-                revenue: a.totalRevenue,
-                paid: a.paidOrders,
-                unpaid: a.unpaidOrders
+                revenue: a.totalRevenue || 0,
+                paid: a.paidOrders || 0,
+                unpaid: a.unpaidOrders || 0
             })),
-            totalRevenue: result.totals.totalRevenue,
-            averageOrderValue: (result.totals.totalRevenue / (result.totals.totalOrders - result.totals.ordersCancelled || 1)).toFixed(2)
+            totalRevenue: totals.totalRevenue,
+            // ✅ Safety: Prevent division by zero
+            averageOrderValue: (totals.totalRevenue / (totals.totalOrders || 1)).toFixed(2)
         };
 
         return sendResponse(res, 200, true, "Revenue analytics retrieved", revenue);
