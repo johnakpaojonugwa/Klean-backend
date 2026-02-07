@@ -176,6 +176,38 @@ export const analyticsService = {
             logger.error("SuperAdmin Summary Error:", error.message);
             throw error;
         }
-    }
+    },
+
+    getAnalyticsPeriod: async (startDate, endDate, branchId = null) => {
+        try {
+            const start = new Date(startDate);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999);
+
+            const query = {
+                date: { $gte: start, $lte: end },
+                ...(branchId && { branchId: new mongoose.Types.ObjectId(branchId) })
+            };
+
+            const analytics = await Analytics.find(query).sort({ date: 1 });
+
+            // Calculate totals for the period
+            const totals = analytics.reduce((acc, curr) => {
+                acc.totalOrders += curr.totalOrders || 0;
+                acc.totalRevenue += curr.totalRevenue || 0;
+                acc.newCustomers += curr.newCustomers || 0;
+                return acc;
+            }, { totalOrders: 0, totalRevenue: 0, newCustomers: 0 });
+
+            return {
+                analytics,
+                totals
+            };
+        } catch (error) {
+            logger.error("Get Analytics Period Error:", error.message);
+            throw error;
+        }
+    },
 };
 
