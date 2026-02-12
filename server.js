@@ -54,12 +54,7 @@ if (process.env.NODE_ENV === 'production') {
 // Security Middleware
 app.use(helmet());
 
-// Rate limiting
-const limiter = rateLimit({
-    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
-    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
-    message: 'Too many requests from this IP, please try again later.'
-});
+
 
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -68,17 +63,15 @@ const authLimiter = rateLimit({
 });
 
 // API rate limiter for regular endpoints (100 requests per 15 minutes)
+const isDev = process.env.NODE_ENV !== 'production';
+
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 100,
-    message: 'Too many requests from this IP, please try again later.',
-    skip: (req) => {
-        // Don't rate limit health checks
-        return req.path === '/api/v1/health';
-    }
+    // Give yourself 1000 requests in dev, keep 100 in prod
+    max: isDev ? 1000 : (parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100),
+    message: 'Too many requests, please try again later.',
+    skip: (req) => req.path === '/api/v1/health'
 });
-
-app.use(limiter);
 
 // Request logging middleware
 app.use(requestLogger);
@@ -89,8 +82,10 @@ app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // CORS configuration
 app.use(cors({
-    origin: process.env.CORS_ORIGIN || '*',
-    credentials: true
+    origin: [process.env.CORS_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173'].filter(Boolean),
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
 }));
 // Connect to database
 connectDB();

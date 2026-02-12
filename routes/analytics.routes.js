@@ -5,7 +5,8 @@ import {
     getDailyAnalytics,
     getOrderTrends,
     getRevenueAnalytics,
-    getCustomerAnalytics
+    getCustomerAnalytics,
+    exportDashboardPDF,
 } from "../controllers/analytics.controller.js";
 import { auth, authorize } from "../middlewares/authMiddleware.js";
 
@@ -22,5 +23,6 @@ router.get('/daily', auth, authorize('SUPER_ADMIN', 'BRANCH_MANAGER'), getDailyA
 router.get('/orders/trends', auth, authorize('SUPER_ADMIN', 'BRANCH_MANAGER'), getOrderTrends);
 router.get('/revenue', auth, authorize('SUPER_ADMIN', 'BRANCH_MANAGER'), getRevenueAnalytics);
 router.get('/customers', auth, authorize('SUPER_ADMIN', 'BRANCH_MANAGER'), getCustomerAnalytics);
+router.post('/export/pdf', auth, authorize('SUPER_ADMIN', 'BRANCH_MANAGER'), exportDashboardPDF);
 
 export default router;

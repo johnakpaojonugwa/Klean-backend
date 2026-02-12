@@ -2,6 +2,7 @@ import { sendResponse, sendError } from "../utils/response.js";
 import { logger } from "../utils/logger.js";
 import { analyticsService } from "../services/analyticsService.js";
 import Branch from "../models/branch.model.js";
+import PDFDocument from "pdfkit";
 
 const getQueryBranchId = (user, queryId) => {
     if (user.role === 'BRANCH_MANAGER') return user.branchId;
@@ -180,5 +181,60 @@ export const getCustomerAnalytics = async (req, res, next) => {
     } catch (error) {
         logger.error("Get customer analytics error:", error.message);
         next(error);
+    }
+};
+
+export const exportDashboardPDF = async (req, res, next) => {
+    try {
+        const { dashboardData, dateRange } = req.body;
+
+        if (!dashboardData) {
+            return sendError(res, 400, "No data provided for export");
+        }
+
+        // Create a new PDF Document
+        const doc = new PDFDocument({ margin: 50 });
+
+        // Set headers so the browser knows it's a PDF file
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename=Dashboard-Report-${Date.now()}.pdf`);
+
+        // Pipe the PDF directly to the response stream
+        doc.pipe(res);
+
+        // --- PDF CONTENT START ---
+        doc.fontSize(20).text('System Performance Report', { align: 'center' });
+        doc.moveDown();
+        doc.fontSize(12).text(`Generated on: ${new Date().toLocaleString()}`);
+        doc.text(`Reporting Period: ${dateRange || 'All Time'}`);
+        doc.moveDown();
+        doc.rect(50, doc.y, 500, 2).fill('#eeeeee'); // Horizontal line
+        doc.moveDown();
+
+        // Key Stats Section
+        doc.fontSize(16).text('Key Metrics');
+        doc.moveDown(0.5);
+        doc.fontSize(12)
+           .text(`Total Revenue: ₱${dashboardData.liveTotals?.revenue || 0}`)
+           .text(`Total Orders: ${dashboardData.liveTotals?.orders || 0}`)
+           .text(`Pending Workload: ${dashboardData.pendingWorkload || 0}`);
+
+        // If you have charts or lists, you'd loop through them here
+        if (dashboardData.recentOrders) {
+            doc.moveDown().fontSize(16).text('Recent Transactions');
+            dashboardData.recentOrders.forEach(order => {
+                doc.fontSize(10).text(`${order.id} - ${order.customerName}: ₱${order.total}`);
+            });
+        }
+        // Finalize the PDF
+        doc.end();
+
+        logger.info(`PDF successfully generated for user: ${req.user.id}`);
+
+    } catch (error) {
+        logger.error("Export PDF error:", error.message);
+        if (!res.headersSent) {
+            next(error);
+        }
     }
 };
