@@ -51,10 +51,23 @@ if (process.env.NODE_ENV === 'production') {
     app.use(Sentry.Handlers.requestHandler());
 }
 
+// CORS configuration
+app.use(cors({
+    origin: [process.env.CORS_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173'].filter(Boolean),
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 // Security Middleware
 app.use(helmet());
 
+// Request logging middleware
+app.use(requestLogger);
 
+// Body parsing middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -73,20 +86,6 @@ const apiLimiter = rateLimit({
     skip: (req) => req.path === '/api/v1/health'
 });
 
-// Request logging middleware
-app.use(requestLogger);
-
-// Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
-
-// CORS configuration
-app.use(cors({
-    origin: [process.env.CORS_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173'].filter(Boolean),
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-}));
 // Connect to database
 connectDB();
 
