@@ -105,7 +105,8 @@ app.use(cors({
 }));
 
 // Manually handle OPTIONS if the middleware is being bypassed
-app.options('*', cors());
+app.options('(.*)', cors(corsOptions));
+
 // Connect to database
 connectDB();
 
