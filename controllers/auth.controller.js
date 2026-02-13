@@ -29,19 +29,6 @@ export const register = async (req, res, next) => {
     try {
         const { fullname, email, password, confirmPassword, role, branchId } = req.body || {};
 
-        // Validation
-        const errors = [];
-        if (!fullname || fullname.trim().length < 3) errors.push("Full name must be at least 3 characters");
-        if (!email || !isValidEmail(email)) errors.push("Valid email is required");
-        if (!password || !isStrongPassword(password)) {
-            errors.push("Password must be at least 8 characters with uppercase, number, and special character");
-        }
-        if (password !== confirmPassword) errors.push("Passwords do not match");
-
-        if (errors.length > 0) {
-            return sendError(res, 400, "Validation failed", errors);
-        }
-
         // Check if user already exists
         const existingUser = await User.findOne({ email: email.toLowerCase() });
         if (existingUser) {
@@ -94,15 +81,6 @@ export const register = async (req, res, next) => {
 export const login = async (req, res, next) => {
     try {
         const { email, password } = req.body || {};
-
-        // Validation
-        const errors = [];
-        if (!email || !isValidEmail(email)) errors.push("Valid email is required");
-        if (!password) errors.push("Password is required");
-
-        if (errors.length > 0) {
-            return sendError(res, 400, "Validation failed", errors);
-        }
 
         // Find user and explicitly select password field
         const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
