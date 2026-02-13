@@ -164,40 +164,39 @@ export const forgotPassword = async (req, res, next) => {
     try {
         const { email } = req.body;
 
-        // Validate email
         if (!email || !isValidEmail(email)) {
             return sendError(res, 400, "Valid email is required");
         }
 
         const user = await User.findOne({ email: email.toLowerCase() });
 
-        // Security: Don't reveal if email exists
+        const successMessage = "If an account exists with that email, a reset link has been sent.";
+
         if (!user) {
-            return sendResponse(res, 200, true, "If an account exists, a reset link has been sent.");
+            return sendResponse(res, 200, true, successMessage);
         }
 
         const resetToken = crypto.randomBytes(32).toString("hex");
-
         user.passwordResetToken = crypto.createHash("sha256").update(resetToken).digest("hex");
-        user.passwordResetExpires = Date.now() + 10 * 60 * 1000; // Token valid for 10 minutes
+        user.passwordResetExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
 
         await user.save({ validateBeforeSave: false });
 
-        try {
-            await emailService.sendPasswordResetEmail(user, resetToken);
-            logger.info(`Password reset email sent to: ${user.email}`);
+        emailService.sendPasswordResetEmail(user, resetToken)
+            .then(() => {
+                logger.info(`Password reset email successfully sent to: ${user.email}`);
+            })
+            .catch(async (error) => {
+                logger.error(`Background Email delivery failed for ${user.email}:`, error.message);
+                user.passwordResetToken = undefined;
+                user.passwordResetExpires = undefined;
+                await user.save({ validateBeforeSave: false });
+            });
 
-            return sendResponse(res, 200, true, "Password reset link sent to your email!");
-        } catch (error) {
-            user.passwordResetToken = undefined;
-            user.passwordResetExpires = undefined;
-            await user.save({ validateBeforeSave: false });
-
-            logger.error(`Email delivery failed for ${user.email}:`, error.message);
-            return sendError(res, 500, "There was an error sending the email. Try again later.");
-        }
+        return sendResponse(res, 200, true, successMessage);
 
     } catch (error) {
+        logger.error("Forgot password error:", error.message);
         next(error);
     }
 };
