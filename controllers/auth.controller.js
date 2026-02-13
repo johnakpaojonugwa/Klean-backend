@@ -43,6 +43,7 @@ export const register = async (req, res, next) => {
             fullname: fullname.trim(),
             email: email.toLowerCase(),
             password,
+            confirmPassword,
             role,
             branchId,
             avatar
