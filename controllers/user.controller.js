@@ -34,6 +34,45 @@ export const getAllUsers = async (req, res, next) => {
     }
 };
 
+// Get all customers
+export const getCustomers = async (req, res, next) => {
+    try {
+        const { page = 1, limit = 10, search = '' } = req.query;
+
+        // Validate and safe pagination parameters
+        const pageNum = Math.max(1, parseInt(page) || 1);
+        const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 10));
+        const skip = (pageNum - 1) * limitNum;
+
+        let query = { role: 'CUSTOMER' };
+
+        // Search by name or email
+        if (search) {
+            query.$or = [
+                { fullname: { $regex: search, $options: 'i' } },
+                { email: { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        const customers = await User.find(query)
+            .select("-password")
+            .limit(limitNum)
+            .skip(skip)
+            .sort({ createdAt: -1 });
+
+        const total = await User.countDocuments(query);
+
+        logger.info(`Customers fetched: ${customers.length}`);
+        return sendResponse(res, 200, true, "Customers retrieved successfully", {
+            customers,
+            pagination: { total, page: pageNum, pages: Math.ceil(total / limitNum) }
+        });
+    } catch (error) {
+        logger.error("Get customers error:", error.message);
+        next(error);
+    }
+};
+
 
 // Get single user
 export const getSingleUser = async (req, res, next) => {
