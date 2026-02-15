@@ -1,40 +1,56 @@
 import Order from "../models/order.model.js";
+import Branch from "../models/branch.model.js";
+import Employee from "../models/employee.model.js";
 import Inventory from "../models/inventory.model.js";
 import StockLog from "../models/stockLog.model.js";
-import Employee from "../models/employee.model.js";
-import Branch from "../models/branch.model.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import { logger } from "../utils/logger.js";
+import mongoose from "mongoose";
 
 export const createOrder = async (req, res, next) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
     try {
-        // 1. Capture the new camelCase fields and walk-in data
         const { 
             customerId, branchId, customerName, customerPhone, 
             items, pickupDate, deliveryDate, priority, discount 
         } = req.body;
 
-        const order = await Order.create({
-            customerId,
+        // --- ROLE BASED SECURITY ENFORCEMENT ---
+        // Customers cannot choose their branch; it's taken from their profile.
+        const effectiveBranchId = req.user.role === 'CUSTOMER' ? req.user.branchId : branchId;
+        const effectiveCustomerId = req.user.role === 'CUSTOMER' ? req.user.id : customerId;
+
+        if (!effectiveBranchId) return sendError(res, 400, "Branch assignment is required.");
+
+        const order = await Order.create([{
+            customerId: effectiveCustomerId,
             customerName,
             customerPhone,
-            branchId,
+            branchId: effectiveBranchId,
             items,
             pickupDate,
             deliveryDate,
-            priority,
-            discount,
+            priority: priority?.toUpperCase() || 'NORMAL',
+            discount: discount || 0,
             status: 'PENDING',       
             paymentStatus: 'UNPAID'   
-        });
+        }], { session });
 
-        await Branch.findByIdAndUpdate(branchId, { $inc: { totalOrders: 1 } });
+        // Update branch order count
+        await Branch.findByIdAndUpdate(effectiveBranchId, { $inc: { totalOrders: 1 } }, { session });
 
-        const populatedOrder = await order.populate(['customerId', 'branchId', 'assignedEmployee']);
+        await session.commitTransaction();
+        session.endSession();
 
-        logger.info(`Order created: ${order.orderNumber}.`);
+        const populatedOrder = await Order.findById(order[0]._id)
+            .populate(['customerId', 'branchId', 'assignedEmployee']);
+
+        logger.info(`Order created: ${populatedOrder.orderNumber}`);
         return sendResponse(res, 201, true, "Order created successfully", { order: populatedOrder });
     } catch (error) {
+        await session.abortTransaction();
+        session.endSession();
         logger.error("Create order error:", error.message);
         next(error);
     }
@@ -42,54 +58,34 @@ export const createOrder = async (req, res, next) => {
 
 export const getOrders = async (req, res, next) => {
     try {
-        const {
-            status, branchId, customerId,
-            search,
-            dateType, startDate, endDate,
-            page = 1, limit = 10
-        } = req.query;
-
-        // Validate and safe pagination parameters
-        const pageNum = Math.max(1, parseInt(page) || 1);
-        const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 10));
-        const skip = (pageNum - 1) * limitNum;
+        const { status, branchId, customerId, search, page = 1, limit = 10 } = req.query;
+        const pageNum = Math.max(1, parseInt(page));
+        const limitNum = Math.min(100, parseInt(limit));
 
         let query = {};
 
-        // SECURITY SCOPING
+        // Security Scoping
         if (req.user.role === 'CUSTOMER') {
             query.customerId = req.user.id;
-        } 
-        else if (req.user.role === 'BRANCH_MANAGER') {
+        } else if (req.user.role === 'BRANCH_MANAGER') {
             query.branchId = req.user.branchId;
-        } 
-        else if (branchId) {
+        } else if (branchId) {
             query.branchId = branchId;
         }
 
-        // ADMINISTRATIVE FILTERS (Only if not a customer)
-        if (req.user.role !== 'CUSTOMER' && customerId) {
-            query.customerId = customerId;
-        }
-
-        // SEARCH & LOGISTICS FILTERS
-        if (search) {
-            query.orderNumber = { $regex: search, $options: 'i' };
-        }
-
+        if (req.user.role !== 'CUSTOMER' && customerId) query.customerId = customerId;
+        if (search) query.orderNumber = { $regex: search, $options: 'i' };
         if (status) query.status = status;
 
-        if (dateType && startDate && endDate) {
-            query[dateType] = {
-                $gte: new Date(startDate),
-                $lte: new Date(endDate)
-            };
-        }
+        // Hide sensitive branch data from customers by not fully populating it
+        const populationFields = req.user.role === 'CUSTOMER' 
+            ? ['assignedEmployee'] 
+            : ['customerId', 'branchId', 'assignedEmployee'];
 
         const orders = await Order.find(query)
-            .populate(['customerId', 'branchId', 'assignedEmployee'])
+            .populate(populationFields)
             .limit(limitNum)
-            .skip(skip)
+            .skip((pageNum - 1) * limitNum)
             .sort({ createdAt: -1 });
 
         const total = await Order.countDocuments(query);
@@ -99,7 +95,6 @@ export const getOrders = async (req, res, next) => {
             pagination: { total, page: pageNum, pages: Math.ceil(total / limitNum) }
         });
     } catch (error) {
-        logger.error("Get orders error:", error.message);
         next(error);
     }
 };
