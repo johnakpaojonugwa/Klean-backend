@@ -8,25 +8,31 @@ import { logger } from "../utils/logger.js";
 
 export const createOrder = async (req, res, next) => {
     try {
-        const { customerId, branchId, items, dueDate } = req.body;
+        // 1. Capture the new camelCase fields and walk-in data
+        const { 
+            customerId, branchId, customerName, customerPhone, 
+            items, pickupDate, deliveryDate, priority, discount 
+        } = req.body;
 
         const order = await Order.create({
             customerId,
+            customerName,
+            customerPhone,
             branchId,
             items,
-            dueDate,
-            status: 'PENDING',
-            paymentStatus: 'UNPAID'
+            pickupDate,
+            deliveryDate,
+            priority,
+            discount,
+            status: 'PENDING',       
+            paymentStatus: 'UNPAID'   
         });
 
-        // Update Branch statistics automatically
-        await Branch.findByIdAndUpdate(branchId, { 
-            $inc: { totalOrders: 1 } 
-        });
+        await Branch.findByIdAndUpdate(branchId, { $inc: { totalOrders: 1 } });
 
-        const populatedOrder = await order.populate(['customerId', 'branchId', 'assignedStaff']);
+        const populatedOrder = await order.populate(['customerId', 'branchId', 'assignedEmployee']);
 
-        logger.info(`Order created: ${order.orderNumber}. Branch ${branchId} counter incremented.`);
+        logger.info(`Order created: ${order.orderNumber}.`);
         return sendResponse(res, 201, true, "Order created successfully", { order: populatedOrder });
     } catch (error) {
         logger.error("Create order error:", error.message);
@@ -81,7 +87,7 @@ export const getOrders = async (req, res, next) => {
         }
 
         const orders = await Order.find(query)
-            .populate(['customerId', 'branchId', 'assignedStaff'])
+            .populate(['customerId', 'branchId', 'assignedEmployee'])
             .limit(limitNum)
             .skip(skip)
             .sort({ createdAt: -1 });
@@ -101,7 +107,7 @@ export const getOrders = async (req, res, next) => {
 export const getOrderById = async (req, res, next) => {
     try {
         const { orderId } = req.params;
-        const order = await Order.findById(orderId).populate(['customerId', 'branchId', 'assignedStaff']);
+        const order = await Order.findById(orderId).populate(['customerId', 'branchId', 'assignedEmployee']);
 
         if (!order) return sendError(res, 404, "Order not found");
 
@@ -122,33 +128,28 @@ export const getOrderById = async (req, res, next) => {
 export const updateOrder = async (req, res, next) => {
     try {
         const { orderId } = req.params;
-        const { status, paymentStatus, assignedStaff, items } = req.body;
+        const { status, paymentStatus, assignedEmployee, items, priority, discount } = req.body;
 
         const oldOrder = await Order.findById(orderId);
         if (!oldOrder) return sendError(res, 404, "Order not found");
 
         const order = await Order.findByIdAndUpdate(
             orderId,
-            { status, paymentStatus, assignedStaff, items },
+            { status, paymentStatus, assignedEmployee, items, priority, discount },
             { new: true, runValidators: true, context: 'query' }
-        ).populate(['customerId', 'branchId', 'assignedStaff']);
+        ).populate(['customerId', 'branchId', 'assignedEmployee']);
 
-        // REVENUE LOGIC: Update a branch revenue
         if (paymentStatus === 'PAID' && oldOrder.paymentStatus !== 'PAID') {
             await Branch.findByIdAndUpdate(order.branchId, { 
                 $inc: { totalRevenue: order.totalAmount } 
             });
-            logger.info(`Revenue updated for branch ${order.branchId}: +${order.totalAmount}`);
         }
 
-        // LOGIC: Handle Staff Reassignment Task Counters
-        if (assignedStaff && oldOrder.assignedStaff?.toString() !== assignedStaff) {
-            // Remove task from old staff
-            if (oldOrder.assignedStaff) {
-                await Employee.findOneAndUpdate({ userId: oldOrder.assignedStaff }, { $inc: { assignedTasks: -1 } });
+        if (assignedEmployee && oldOrder.assignedEmployee?.toString() !== assignedEmployee) {
+            if (oldOrder.assignedEmployee) {
+                await Employee.findOneAndUpdate({ userId: oldOrder.assignedEmployee }, { $inc: { assignedTasks: -1 } });
             }
-            // Add task to new staff
-            await Employee.findOneAndUpdate({ userId: assignedStaff }, { $inc: { assignedTasks: 1 } });
+            await Employee.findOneAndUpdate({ userId: assignedEmployee }, { $inc: { assignedTasks: 1 } });
         }
 
         return sendResponse(res, 200, true, "Order updated successfully", { order });
@@ -169,15 +170,15 @@ export const updateOrderStatus = async (req, res, next) => {
             orderId,
             { status },
             { new: true, runValidators: true, context: 'query' }
-        ).populate(['customerId', 'branchId', 'assignedStaff']);
+        ).populate(['customerId', 'branchId', 'assignedEmployee']);
 
         // Employee Logic: Move from Assigned to Completed
         const isFinishing = ['READY', 'DELIVERED'].includes(status);
         const wasAlreadyFinished = ['READY', 'DELIVERED'].includes(oldOrder.status);
 
-        if (order.assignedStaff && isFinishing && !wasAlreadyFinished) {
+        if (order.assignedEmployee && isFinishing && !wasAlreadyFinished) {
             await Employee.findOneAndUpdate(
-                { userId: order.assignedStaff }, 
+                { userId: order.assignedEmployee }, 
                 { $inc: { completedTasks: 1, assignedTasks: -1 } }
             );
         }
@@ -226,9 +227,9 @@ export const deleteOrder = async (req, res, next) => {
         await Branch.findByIdAndUpdate(order.branchId, updateData);
 
         // Cleanup: If deleted, reduce assigned task count for the staff
-        if (order.assignedStaff && !['READY', 'DELIVERED'].includes(order.status)) {
+        if (order.assignedEmployee && !['READY', 'DELIVERED'].includes(order.status)) {
             await Employee.findOneAndUpdate(
-                { userId: order.assignedStaff }, 
+                { userId: order.assignedEmployee }, 
                 { $inc: { assignedTasks: -1 } }
             );
         }

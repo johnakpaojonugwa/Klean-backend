@@ -35,7 +35,7 @@ const branchSchema = new mongoose.Schema({
     },
     servicesOffered: [{
         type: String,
-        enum: ['WASHING', 'IRONING', 'DRY_CLEANING', 'STAIN_REMOVAL', 'PICKUP', 'DELIVERY']
+        enum: ['WASH_FOLD', 'IRONING', 'DRY_CLEANING', 'STAIN_REMOVAL', 'PICKUP', 'DELIVERY', 'EXPRESS', 'ALTERATIONS']
     }],
 }, { timestamps: true });
 

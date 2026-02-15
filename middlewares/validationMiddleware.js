@@ -45,21 +45,64 @@ export const validateLogin = (req, res, next) => {
 };
 
 export const validateCreateOrder = (req, res, next) => {
-    const { branchId, customerId, items } = req.body || {};
+    const { 
+        branchId, 
+        customerId, 
+        customerName, 
+        customerPhone, 
+        items, 
+        priority, 
+        status 
+    } = req.body || {};
+    
     const errors = [];
 
+    // Basic Identity & Contact Validation
     if (!branchId) errors.push("Branch ID is required");
-    if (!customerId) errors.push("Customer ID is required");
-    if (!items || !Array.isArray(items) || items.length === 0) errors.push("At least one item is required");
+    
+    // Validate either an existing customer ID OR new customer details
+    if (!customerId && (!customerName || !customerPhone)) {
+        errors.push("Customer details (ID or Name & Phone) are required");
+    }
 
-    items?.forEach((item, i) => {
-        if (!item.serviceName) errors.push(`Item ${i + 1}: serviceName is required`);
-        if (!item.quantity || item.quantity <= 0) errors.push(`Item ${i + 1}: quantity must be greater than 0`);
-        if (!item.unitPrice || item.unitPrice < 0) errors.push(`Item ${i + 1}: unitPrice is required`);
-    });
+    // Items Array Validation
+    if (!items || !Array.isArray(items) || items.length === 0) {
+        errors.push("At least one item is required in the order");
+    } else {
+        items.forEach((item, i) => {
+            const index = i + 1;
+            // Matches schema key: itemType
+            if (!item.itemType) errors.push(`Item ${index}: Item type (e.g., Shirt) is required`);
+            
+            if (!item.quantity || item.quantity <= 0) {
+                errors.push(`Item ${index}: Quantity must be at least 1`);
+            }
+            
+            // Matches schema key: unitPrice
+            if (item.unitPrice === undefined || item.unitPrice < 0) {
+                errors.push(`Item ${index}: Unit price is required and cannot be negative`);
+            }
+        });
+    }
 
+    // Enum Validation (Optional but recommended for production)
+    const validPriorities = ['normal', 'express', 'urgent'];
+    if (priority && !validPriorities.includes(priority)) {
+        errors.push(`Priority must be one of: ${validPriorities.join(", ")}`);
+    }
+
+    const validStatuses = ['pending', 'processing', 'washing', 'drying', 'ironing', 'ready', 'delivered', 'cancelled'];
+    if (status && !validStatuses.includes(status)) {
+        errors.push("Invalid order status provided");
+    }
+
+    // Final Error Check
     if (errors.length > 0) {
-        return res.status(400).json({ success: false, message: "Validation failed", errors });
+        return res.status(400).json({ 
+            success: false, 
+            message: "Validation failed", 
+            errors 
+        });
     }
 
     next();
