@@ -13,7 +13,7 @@ export const createOrder = async (req, res, next) => {
     try {
         const { 
             customerId, branchId, customerName, customerPhone, 
-            items, pickupDate, deliveryDate, priority, discount 
+            items, pickupDate, deliveryDate, priority, discount, serviceType 
         } = req.body;
 
         // --- ROLE BASED SECURITY ENFORCEMENT ---
@@ -31,6 +31,7 @@ export const createOrder = async (req, res, next) => {
             items,
             pickupDate,
             deliveryDate,
+            serviceType,
             priority: priority?.toUpperCase() || 'NORMAL',
             discount: discount || 0,
             status: 'PENDING',       

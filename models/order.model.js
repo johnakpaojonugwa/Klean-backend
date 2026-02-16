@@ -34,6 +34,11 @@ const orderSchema = new mongoose.Schema({
     default: 'NORMAL' 
   },
 
+  serviceType: [{
+        type: String,
+        enum: ['WASH_FOLD', 'IRONING', 'DRY_CLEANING', 'STAIN_REMOVAL', 'PICKUP', 'DELIVERY', 'EXPRESS', 'ALTERATIONS']
+    }],
+
   pickupDate: { type: Date },
   deliveryDate: { type: Date },
 
