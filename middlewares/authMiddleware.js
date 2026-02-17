@@ -9,6 +9,7 @@ export const auth = async (req, res, next) => {
         req.user = {
             id: decoded.id,
             role: decoded.role,
+            branchId: decoded.branchId
         };
         next();
     } catch (error) {
