@@ -8,7 +8,7 @@ import { emailService } from "../utils/emailService.js";
 import crypto from "crypto";
 
 // Helper to generate tokens
-const generateTokens = (userId, role) => {
+const generateTokens = (userId, role, branchId = null) => {
     const accessToken = jwt.sign(
         { id: userId, role, branchId },
         process.env.JWT_SECRET,
@@ -45,7 +45,7 @@ export const register = async (req, res, next) => {
             password,
             confirmPassword,
             role,
-            branchId,
+            branchId: branchId || null, // Ensure branchId is set from the token or request body
             avatar
         });
 
@@ -67,7 +67,8 @@ export const register = async (req, res, next) => {
                 fullname: user.fullname,
                 email: user.email,
                 role: user.role,
-                avatar: user.avatar
+                avatar: user.avatar,
+                branchId: user.branchId
             },
             accessToken,
             refreshToken
@@ -138,7 +139,7 @@ export const refreshToken = async (req, res, next) => {
             return sendError(res, 401, "Invalid refresh token");
         }
 
-        const { accessToken, refreshToken: newRefreshToken } = generateTokens(user._id, user.role);
+        const { accessToken, refreshToken: newRefreshToken } = generateTokens(user._id, user.role, user.branchId);
 
         return sendResponse(res, 200, true, "Token refreshed", {
             accessToken,
@@ -257,7 +258,8 @@ export const resetPassword = async (req, res, next) => {
                 _id: user._id,
                 fullname: user.fullname,
                 email: user.email,
-                role: user.role
+                role: user.role,
+                branchId: user.branchId,
             },
             accessToken,
             refreshToken
