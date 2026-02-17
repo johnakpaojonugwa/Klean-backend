@@ -1,17 +1,34 @@
 import { sendResponse, sendError } from '../../utils/response.js';
 
+// Helper function to create mock objects for ES modules
+const createMockResponse = () => {
+    const mockRes = {
+        statusCode: null,
+        body: null
+    };
+    
+    mockRes.status = function(code) {
+        this.statusCode = code;
+        return this;
+    };
+    
+    mockRes.json = function(data) {
+        this.body = data;
+        return this;
+    };
+    
+    return mockRes;
+};
+
 describe('Response Utilities', () => {
     describe('sendResponse', () => {
         it('should format success response correctly', () => {
-            const res = {
-                status: jest.fn().mockReturnThis(),
-                json: jest.fn()
-            };
+            const res = createMockResponse();
 
             sendResponse(res, 200, true, 'Success', { data: 'test' });
 
-            expect(res.status).toHaveBeenCalledWith(200);
-            expect(res.json).toHaveBeenCalledWith({
+            expect(res.statusCode).toBe(200);
+            expect(res.body).toEqual({
                 success: true,
                 message: 'Success',
                 data: { data: 'test' }
@@ -19,28 +36,22 @@ describe('Response Utilities', () => {
         });
 
         it('should set correct status code', () => {
-            const res = {
-                status: jest.fn().mockReturnThis(),
-                json: jest.fn()
-            };
+            const res = createMockResponse();
 
             sendResponse(res, 201, true, 'Created', {});
 
-            expect(res.status).toHaveBeenCalledWith(201);
+            expect(res.statusCode).toBe(201);
         });
     });
 
     describe('sendError', () => {
         it('should format error response correctly', () => {
-            const res = {
-                status: jest.fn().mockReturnThis(),
-                json: jest.fn()
-            };
+            const res = createMockResponse();
 
             sendError(res, 400, 'Bad Request', ['Field required']);
 
-            expect(res.status).toHaveBeenCalledWith(400);
-            expect(res.json).toHaveBeenCalledWith({
+            expect(res.statusCode).toBe(400);
+            expect(res.body).toEqual({
                 success: false,
                 message: 'Bad Request',
                 errors: ['Field required']
@@ -48,14 +59,11 @@ describe('Response Utilities', () => {
         });
 
         it('should handle errors without details', () => {
-            const res = {
-                status: jest.fn().mockReturnThis(),
-                json: jest.fn()
-            };
+            const res = createMockResponse();
 
             sendError(res, 500, 'Server Error');
 
-            expect(res.status).toHaveBeenCalledWith(500);
+            expect(res.statusCode).toBe(500);
         });
     });
 });

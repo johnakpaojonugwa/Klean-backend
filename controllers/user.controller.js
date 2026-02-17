@@ -7,13 +7,17 @@ export const getAllUsers = async (req, res, next) => {
     try {
         let query = {};
 
-        query.role = { $ne: 'CUSTOMER' };
-
-        // Branch isolation Logic
+        // Role filtering based on user type
         if (req.user.role === "BRANCH_MANAGER") {
+            // Branch managers should only see STAFF, not other managers or admins
+            query.role = { $in: ['STAFF'] };
             query.branchId = req.user.branchId;
-        } else if (req.user.role === "SUPER_ADMIN" && req.query.branchId) {
-            query.branchId = req.query.branchId;
+        } else if (req.user.role === "SUPER_ADMIN") {
+            // Super admins see all non-customer roles
+            query.role = { $ne: 'CUSTOMER' };
+            if (req.query.branchId) {
+                query.branchId = req.query.branchId;
+            }
         }
 
         // Search Logic

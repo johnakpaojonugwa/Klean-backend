@@ -5,15 +5,12 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '../.env.test') });
 
-// Mock scheduled jobs
-jest.mock('../utils/scheduledJobs.js', () => ({
-    initializeScheduledJobs: jest.fn()
-}));
+// Set dummy Twilio credentials for testing (must start with AC)
+if (!process.env.TWILIO_ACCOUNT_SID) {
+    process.env.TWILIO_ACCOUNT_SID = 'ACtest1234567890abcdef1234567890';
+}
+if (!process.env.TWILIO_AUTH_TOKEN) {
+    process.env.TWILIO_AUTH_TOKEN = 'test-auth-token';
+}
 
-// Mock Cloudinary
-jest.mock('../utils/upload.js', () => ({
-    default: (req, res, next) => next()
-}));
 
-// Increase test timeout
-jest.setTimeout(10000);
