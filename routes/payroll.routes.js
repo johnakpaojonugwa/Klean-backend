@@ -16,7 +16,7 @@ import {
 const router = express.Router();
 
 // Salary Structure Routes
-router.post('/structure/create', auth, authorize('SUPER_ADMIN'), createSalaryStructure);
+router.post('/structure/create', auth, authorize('SUPER_ADMIN', 'BRANCH_MANAGER'), createSalaryStructure);
 router.get('/structure/list', auth, getSalaryStructures);
 router.put('/structure/:structureId', auth, authorize('SUPER_ADMIN'), updateSalaryStructure);
 
