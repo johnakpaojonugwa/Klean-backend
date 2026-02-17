@@ -91,9 +91,8 @@ const orderSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // INDEXES for high-performance searching
-orderSchema.index({ orderNumber: 1 });
 orderSchema.index({ branchId: 1, status: 1 });
-orderSchema.index({ customerId: 1 });
+orderSchema.index({ customerId: 1, createdAt: -1 });
 
 /**
  * MIDDLEWARE: Automatic Price Calculation
@@ -104,19 +103,19 @@ orderSchema.pre('save', function (next) {
     if (this.isModified('items') || this.isModified('priority') || this.isModified('discount')) {
         let itemsTotal = 0;
 
-        // 1. Calculate individual item subtotals
+        // Calculate individual item subtotals
         this.items.forEach(item => {
             item.subtotal = (item.quantity || 0) * (item.unitPrice || 0);
             itemsTotal += item.subtotal;
         });
 
-        // 2. Apply Priority Multipliers
+        // Apply Priority Multipliers
         const multipliers = { 'URGENT': 1.5, 'EXPRESS': 1.25, 'NORMAL': 1 };
         const multiplier = multipliers[this.priority] || 1;
         
         this.subtotal = itemsTotal * multiplier;
         
-        // 3. Calculate Tax (e.g., 7.5%)
+        // Calculate Tax (e.g., 7.5%)
         this.tax = Math.round((this.subtotal * 0.075) * 100) / 100;
 
         // 4. Final Total
