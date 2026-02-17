@@ -7,26 +7,47 @@ export const getAllUsers = async (req, res, next) => {
     try {
         let query = {};
 
-        // Branch isolation for managers
+        query.role = { $ne: 'CUSTOMER' };
+
+        // Branch isolation Logic
         if (req.user.role === "BRANCH_MANAGER") {
             query.branchId = req.user.branchId;
+        } else if (req.user.role === "SUPER_ADMIN" && req.query.branchId) {
+            query.branchId = req.query.branchId;
         }
 
-        // Only SUPER_ADMIN & BRANCH_MANAGER allowed
-        if (!["SUPER_ADMIN", "BRANCH_MANAGER"].includes(req.user.role)) {
-            return sendError(res, 403, "You are not authorized to view users");
+        // Search Logic
+        if (req.query.search) {
+            query.$or = [
+                { fullname: { $regex: req.query.search, $options: 'i' } },
+                { email: { $regex: req.query.search, $options: 'i' } }
+            ];
         }
 
-        const users = await User.find(query).select("-password");
+        // Pagination Logic
+        const page = parseInt(req.query.page) || 1;
+        const limit = Math.min(parseInt(req.query.limit) || 10, 100);
+        const skip = (page - 1) * limit;
 
-        if (!users.length) {
-            return sendError(res, 404, "No users found");
-        }
+        const [users, total] = await Promise.all([
+            User.find(query)
+                .select("-password -__v")
+                .populate("branchId", "name location")
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit),
+            User.countDocuments(query)
+        ]);
 
-        logger.info(`Users fetched: ${users.length}`);
+        logger.info(`Users fetched by ${req.user.role}: ${users.length}`);
+
         return sendResponse(res, 200, true, "Users retrieved successfully", {
-            total: users.length,
-            users
+            pagination: {
+                total,
+                page,
+                pages: Math.ceil(total / limit)
+            },
+            employees: users
         });
     } catch (error) {
         logger.error("Get all users error:", error.message);
@@ -46,6 +67,11 @@ export const getCustomers = async (req, res, next) => {
 
         let query = { role: 'CUSTOMER' };
 
+        // Branch isolation for Customers
+        if (req.user.role === "BRANCH_MANAGER") {
+            query.branchId = req.user.branchId;
+        }
+
         // Search by name or email
         if (search) {
             query.$or = [
@@ -54,15 +80,15 @@ export const getCustomers = async (req, res, next) => {
             ];
         }
 
-        const customers = await User.find(query)
-            .select("-password")
-            .limit(limitNum)
-            .skip(skip)
-            .sort({ createdAt: -1 });
+        const [customers, total] = await Promise.all([
+            User.find(query)
+                .select("-password")
+                .limit(limitNum)
+                .skip(skip)
+                .sort({ createdAt: -1 }),
+            User.countDocuments(query)
+        ]);
 
-        const total = await User.countDocuments(query);
-
-        logger.info(`Customers fetched: ${customers.length}`);
         return sendResponse(res, 200, true, "Customers retrieved successfully", {
             customers,
             pagination: { total, page: pageNum, pages: Math.ceil(total / limitNum) }
@@ -73,42 +99,29 @@ export const getCustomers = async (req, res, next) => {
     }
 };
 
-
 // Get single user
 export const getSingleUser = async (req, res, next) => {
     try {
         const { userId } = req.params;
 
-        const user = await User.findById(userId).select("-password");
+        const user = await User.findById(userId).select("-password").populate("branchId", "name");
 
         if (!user) {
             return sendError(res, 404, "User not found");
         }
 
-        // Allow user to view own profile
-        if (req.user.id === user._id.toString()) {
-            logger.info(`User ${userId} accessed own profile`);
-            return sendResponse(res, 200, true, "User retrieved", { user });
+        // Authorization checks
+        const isOwnProfile = req.user.id === user._id.toString();
+        const isSuperAdmin = req.user.role === "SUPER_ADMIN";
+        const isBranchManager = req.user.role === "BRANCH_MANAGER" &&
+            user.branchId?._id.toString() === req.user.branchId?.toString();
+
+        if (isOwnProfile || isSuperAdmin || isBranchManager) {
+            return sendResponse(res, 200, true, "User details retrieved", { user });
         }
 
-        // SUPER_ADMIN can view anyone
-        if (req.user.role === "SUPER_ADMIN") {
-            logger.info(`SUPER_ADMIN accessed user ${userId}`);
-            return sendResponse(res, 200, true, "User retrieved", { user });
-        }
-
-        // Branch isolation for managers
-        if (
-            req.user.role === "BRANCH_MANAGER" &&
-            user.branchId?.toString() === req.user.branchId?.toString()
-        ) {
-            logger.info(`Branch manager accessed user ${userId} in their branch`);
-            return sendResponse(res, 200, true, "User retrieved", { user });
-        }
-
-        return sendError(res, 403, "You are not authorized to view this user");
+        return sendError(res, 403, "Access denied: Unauthorized profile access");
     } catch (error) {
-        logger.error("Get single user error:", error.message);
         next(error);
     }
 };
@@ -116,90 +129,92 @@ export const getSingleUser = async (req, res, next) => {
 export const updateUser = async (req, res, next) => {
     try {
         const { userId } = req.params;
-        const { fullname, email, role } = req.body || {};
+        const { fullname, email, role, designation, department } = req.body;
         const avatar = req.files?.avatar?.[0]?.path;
-        
-        const updates = {};
 
+        const user = await User.findById(userId);
+        if (!user) return sendError(res, 404, "User not found");
+
+        // Branch Manager Protection Logic
+        if (req.user.role === "BRANCH_MANAGER") {
+            if (user.branchId?.toString() !== req.user.branchId?.toString()) {
+                return sendError(res, 403, "Managers can only update staff in their own branch");
+            }
+            if (user.role === "SUPER_ADMIN") {
+                return sendError(res, 403, "Managers cannot modify Super Admins");
+            }
+        }
+
+        // Prepare Updates
+        const updates = {};
         if (fullname) updates.fullname = fullname.trim();
         if (email) updates.email = email.trim().toLowerCase();
         if (avatar) updates.avatar = avatar;
+        if (designation) updates.designation = designation;
+        if (department) updates.department = department;
 
-        // Only SUPER_ADMIN can change roles
-        if (role) {
-            if (req.user.role !== "SUPER_ADMIN") {
-                return sendError(res, 403, "Only SUPER_ADMIN can change user roles");
-            }
+        if (role && req.user.role === "SUPER_ADMIN") {
             updates.role = role;
         }
 
-        if (Object.keys(updates).length === 0) {
-            return sendError(res, 400, "No fields to update");
-        }
+        if (Object.keys(updates).length === 0) return sendError(res, 400, "No changes detected");
 
-        // Fetch user first for authorization checks
-        const user = await User.findById(userId);
-        if (!user) {
-            return sendError(res, 404, "User not found");
-        }
-
-        // Branch isolation: managers can only manage their branch
-        if (
-            req.user.role === "BRANCH_MANAGER" &&
-            user.branchId?.toString() !== req.user.branchId?.toString()
-        ) {
-            return sendError(res, 403, "You can only update users in your branch");
-        }
-
-        // Apply updates
         Object.assign(user, updates);
         await user.save();
 
-        logger.info(`User ${userId} updated successfully`);
-        return sendResponse(res, 200, true, "User updated successfully", {
-            user: user.toJSON()
-        });
-
+        return sendResponse(res, 200, true, "Update successful", { user });
     } catch (error) {
-        logger.error("Update user error:", error.message);
         next(error);
     }
 };
 
+// Soft delete user (deactivate)
+export const softDelete = async (req, res, next) => {
+    try {
+        const { userId } = req.params;
+        const user = await User.findById(userId);
+        
+        if (!user) return sendError(res, 404, "User not found");
+
+        // Protection: Can't deactivate yourself
+        if (req.user.id === user._id.toString()) {
+            return sendError(res, 400, "You cannot deactivate your own account");
+        }
+
+        // Branch Isolation for status change
+        if (req.user.role === "BRANCH_MANAGER" && user.branchId?.toString() !== req.user.branchId?.toString()) {
+            return sendError(res, 403, "You can only manage status for staff in your branch");
+        }
+
+        // Flip status logic
+        user.status = user.status === "active" ? "inactive" : "active";
+        await user.save();
+
+        logger.info(`User ${userId} status set to ${user.status} by ${req.user.id}`);
+        return sendResponse(res, 200, true, `Account status changed to ${user.status}`, { status: user.status });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Permanent delete user
 export const deleteUser = async (req, res, next) => {
     try {
         const { userId } = req.params;
-
         const user = await User.findById(userId);
-        if (!user) {
-            return sendError(res, 404, "User not found");
+        if (!user) return sendError(res, 404, "User not found");
+
+        if (req.user.role !== "SUPER_ADMIN") {
+            return sendError(res, 403, "Hard deletion is restricted to SUPER_ADMIN");
         }
 
-        // SUPER_ADMIN protection
-        if (user.role === "SUPER_ADMIN" && req.user.role !== "SUPER_ADMIN") {
-            return sendError(res, 403, "You cannot delete a SUPER_ADMIN");
-        }
-
-        // Branch isolation
-        if (
-            req.user.role === "BRANCH_MANAGER" &&
-            user.branchId?.toString() !== req.user.branchId?.toString()
-        ) {
-            return sendError(res, 403, "You can only delete users in your branch");
-        }
-
-        // Self-deletion protection
         if (req.user.id === user._id.toString()) {
-            return sendError(res, 403, "You cannot delete your own account");
+            return sendError(res, 400, "Self-deletion is not permitted");
         }
 
         await user.deleteOne();
-
-        logger.info(`User ${userId} deleted successfully`);
-        return sendResponse(res, 200, true, "User deleted successfully");
-
+        return sendResponse(res, 200, true, "User permanently removed from system");
     } catch (error) {
-        logger.error("Delete user error:", error.message);
         next(error);
     }
 };

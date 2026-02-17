@@ -16,9 +16,14 @@ export const analyticsService = {
             endOfDay.setHours(23, 59, 59, 999);
 
             const matchStage = {
-                createdAt: { $gte: startOfDay, $lte: endOfDay },
-                ...(branchId && { branchId: new mongoose.Types.ObjectId(branchId) })
+                createdAt: { $gte: startOfDay, $lte: endOfDay }
             };
+
+            if (branchId) {
+                matchStage.branchId = typeof branchId === 'string'
+                    ? new mongoose.Types.ObjectId(branchId)
+                    : branchId;
+            }
 
             // Single Aggregation Pipeline for all Order Metrics
             const orderMetrics = await Order.aggregate([
@@ -93,7 +98,7 @@ export const analyticsService = {
 
     // GET DASHBOARD SUMMARY
     // Merges current Branch stats with today's activity.
-    
+
     getDashboardSummary: async (branchId = null) => {
         try {
             const today = new Date();

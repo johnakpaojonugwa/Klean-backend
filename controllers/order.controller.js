@@ -7,23 +7,22 @@ import { sendResponse, sendError } from "../utils/response.js";
 import { logger } from "../utils/logger.js";
 import mongoose from "mongoose";
 
+// Create Order
 export const createOrder = async (req, res, next) => {
     const session = await mongoose.startSession();
     session.startTransaction();
     try {
-        const { 
-            customerId, branchId, customerName, customerPhone, 
-            items, pickupDate, deliveryDate, priority, discount, serviceType 
+        const {
+            customerId, branchId, customerName, customerPhone,
+            items, pickupDate, deliveryDate, priority, discount, serviceType
         } = req.body;
 
-        // --- ROLE BASED SECURITY ENFORCEMENT ---
-        // Customers cannot choose their branch; it's taken from their profile.
         const effectiveBranchId = req.user.role === 'CUSTOMER' ? req.user.branchId : branchId;
         const effectiveCustomerId = req.user.role === 'CUSTOMER' ? req.user.id : customerId;
 
         if (!effectiveBranchId) return sendError(res, 400, "Branch assignment is required.");
 
-        const order = await Order.create([{
+        const order = new Order({
             customerId: effectiveCustomerId,
             customerName,
             customerPhone,
@@ -34,85 +33,99 @@ export const createOrder = async (req, res, next) => {
             serviceType,
             priority: priority?.toUpperCase() || 'NORMAL',
             discount: discount || 0,
-            status: 'PENDING',       
-            paymentStatus: 'UNPAID'   
-        }], { session });
+            createdBy: req.user.id,
+            status: 'PENDING',
+            paymentStatus: 'UNPAID'
+        });
 
-        // Update branch order count
+        await order.save({ session });
         await Branch.findByIdAndUpdate(effectiveBranchId, { $inc: { totalOrders: 1 } }, { session });
 
         await session.commitTransaction();
         session.endSession();
 
-        const populatedOrder = await Order.findById(order[0]._id)
-            .populate(['customerId', 'branchId', 'assignedEmployee']);
+        const populatedOrder = await Order.findById(order._id)
+            .populate(['customerId', 'branchId', 'assignedEmployee', 'createdBy']);
 
-        logger.info(`Order created: ${populatedOrder.orderNumber}`);
         return sendResponse(res, 201, true, "Order created successfully", { order: populatedOrder });
     } catch (error) {
         await session.abortTransaction();
         session.endSession();
-        logger.error("Create order error:", error.message);
         next(error);
     }
 };
 
+// Get Orders
 export const getOrders = async (req, res, next) => {
     try {
-        const { status, branchId, customerId, search, page = 1, limit = 10 } = req.query;
+        const { status, branchId, customerId, search, page = 1, limit = 10, paymentStatus } = req.query;
         const pageNum = Math.max(1, parseInt(page));
         const limitNum = Math.min(100, parseInt(limit));
 
         let query = {};
 
-        // Security Scoping
+        // SECURITY SCOPING
         if (req.user.role === 'CUSTOMER') {
             query.customerId = req.user.id;
         } else if (req.user.role === 'BRANCH_MANAGER') {
             query.branchId = req.user.branchId;
-        } else if (branchId) {
+        } else if (req.user.role === 'SUPER_ADMIN' && branchId) {
             query.branchId = branchId;
         }
 
+        // ADDITIONAL FILTERS
         if (req.user.role !== 'CUSTOMER' && customerId) query.customerId = customerId;
-        if (search) query.orderNumber = { $regex: search, $options: 'i' };
         if (status) query.status = status;
+        if (paymentStatus) query.paymentStatus = paymentStatus;
 
-        // Hide sensitive branch data from customers by not fully populating it
-        const populationFields = req.user.role === 'CUSTOMER' 
-            ? ['assignedEmployee'] 
-            : ['customerId', 'branchId', 'assignedEmployee'];
+        // Search by Order Number or Customer Name
+        if (search) {
+            query.$or = [
+                { orderNumber: { $regex: search, $options: 'i' } },
+                { customerName: { $regex: search, $options: 'i' } }
+            ];
+        }
 
-        const orders = await Order.find(query)
-            .populate(populationFields)
-            .limit(limitNum)
-            .skip((pageNum - 1) * limitNum)
-            .sort({ createdAt: -1 });
-
-        const total = await Order.countDocuments(query);
+        // EXECUTION
+        const [orders, total] = await Promise.all([
+            Order.find(query)
+                .populate(req.user.role === 'CUSTOMER' ? ['assignedEmployee'] : ['customerId', 'branchId', 'assignedEmployee'])
+                .limit(limitNum)
+                .skip((pageNum - 1) * limitNum)
+                .sort({ createdAt: -1 }),
+            Order.countDocuments(query)
+        ]);
 
         return sendResponse(res, 200, true, "Orders retrieved", {
             orders,
-            pagination: { total, page: pageNum, pages: Math.ceil(total / limitNum) }
+            pagination: {
+                total,
+                page: pageNum,
+                pages: Math.ceil(total / limitNum)
+            }
         });
     } catch (error) {
         next(error);
     }
 };
 
+// Get single order 
 export const getOrderById = async (req, res, next) => {
     try {
         const { orderId } = req.params;
-        const order = await Order.findById(orderId).populate(['customerId', 'branchId', 'assignedEmployee']);
+        const order = await Order.findById(orderId)
+            .populate(['customerId', 'branchId', 'assignedEmployee', 'createdBy', 'statusHistory.updatedBy']);
 
         if (!order) return sendError(res, 404, "Order not found");
 
-        // Permission Checks
-        if (req.user.role === 'CUSTOMER' && order.customerId._id.toString() !== req.user.id) {
-            return sendError(res, 403, "Access denied");
-        }
-        if (req.user.role === 'BRANCH_MANAGER' && order.branchId._id.toString() !== req.user.branchId) {
-            return sendError(res, 403, "Access denied to this branch's data");
+        // Permission Guard
+        const isCustomerOwner = req.user.role === 'CUSTOMER' && order.customerId._id.toString() === req.user.id;
+        const isBranchStaff = (req.user.role === 'BRANCH_MANAGER' || req.user.role === 'STAFF') &&
+            order.branchId._id.toString() === req.user.branchId?.toString();
+        const isSuperAdmin = req.user.role === 'SUPER_ADMIN';
+
+        if (!isCustomerOwner && !isBranchStaff && !isSuperAdmin) {
+            return sendError(res, 403, "You do not have permission to view this order.");
         }
 
         return sendResponse(res, 200, true, "Order retrieved", { order });
@@ -121,120 +134,128 @@ export const getOrderById = async (req, res, next) => {
     }
 };
 
+// Update Order 
 export const updateOrder = async (req, res, next) => {
+    const session = await mongoose.startSession();
+    session.startTransaction(); // Start the "All or Nothing" block
     try {
         const { orderId } = req.params;
-        const { status, paymentStatus, assignedEmployee, items, priority, discount } = req.body;
+        const updates = req.body;
 
-        const oldOrder = await Order.findById(orderId);
-        if (!oldOrder) return sendError(res, 404, "Order not found");
-
-        const order = await Order.findByIdAndUpdate(
-            orderId,
-            { status, paymentStatus, assignedEmployee, items, priority, discount },
-            { new: true, runValidators: true, context: 'query' }
-        ).populate(['customerId', 'branchId', 'assignedEmployee']);
-
-        if (paymentStatus === 'PAID' && oldOrder.paymentStatus !== 'PAID') {
-            await Branch.findByIdAndUpdate(order.branchId, { 
-                $inc: { totalRevenue: order.totalAmount } 
-            });
+        const order = await Order.findById(orderId).session(session);
+        if (!order) {
+            await session.abortTransaction();
+            return sendError(res, 404, "Order not found");
         }
 
-        if (assignedEmployee && oldOrder.assignedEmployee?.toString() !== assignedEmployee) {
-            if (oldOrder.assignedEmployee) {
-                await Employee.findOneAndUpdate({ userId: oldOrder.assignedEmployee }, { $inc: { assignedTasks: -1 } });
+        const wasAlreadyPaid = order.paymentStatus === 'PAID';
+        const oldTotal = order.totalAmount;
+
+        // 1. Initial Revenue Capture
+        if (updates.paymentStatus === 'PAID' && !wasAlreadyPaid) {
+            await Branch.findByIdAndUpdate(order.branchId, 
+                { $inc: { totalRevenue: order.totalAmount } }, 
+                { session }
+            );
+        }
+
+        // 2. Staff Task Balancing
+        if (updates.assignedEmployee && order.assignedEmployee?.toString() !== updates.assignedEmployee) {
+            if (order.assignedEmployee) {
+                await Employee.findOneAndUpdate({ userId: order.assignedEmployee }, { $inc: { assignedTasks: -1 } }, { session });
             }
-            await Employee.findOneAndUpdate({ userId: assignedEmployee }, { $inc: { assignedTasks: 1 } });
+            await Employee.findOneAndUpdate({ userId: updates.assignedEmployee }, { $inc: { assignedTasks: 1 } }, { session });
         }
+
+        // 3. Apply updates
+        Object.assign(order, updates);
+
+        if (updates.status && updates.status !== order.status) {
+            order.statusHistory.push({ status: updates.status, updatedBy: req.user.id });
+        }
+
+        // 4. Price Delta Adjustment (The most important part of your logic)
+        await order.validate();
+        if (wasAlreadyPaid && (order.totalAmount !== oldTotal)) {
+            const difference = order.totalAmount - oldTotal;
+            await Branch.findByIdAndUpdate(order.branchId, 
+                { $inc: { totalRevenue: difference } }, 
+                { session }
+            );
+        }
+
+        await order.save({ session });
+        
+        // If everything above succeeded, commit the changes to the DB
+        await session.commitTransaction(); 
+        session.endSession();
 
         return sendResponse(res, 200, true, "Order updated successfully", { order });
     } catch (error) {
+        // If ANY step failed, cancel everything to keep data clean
+        await session.abortTransaction();
+        session.endSession();
         next(error);
     }
 };
 
+// Update Order Status 
 export const updateOrderStatus = async (req, res, next) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
     try {
         const { orderId } = req.params;
         const { status } = req.body;
 
-        const oldOrder = await Order.findById(orderId);
-        if (!oldOrder) return sendError(res, 404, "Order not found");
+        const order = await Order.findById(orderId).session(session);
+        if (!order) {
+            await session.abortTransaction();
+            return sendError(res, 404, "Order not found");
+        }
 
-        const order = await Order.findByIdAndUpdate(
-            orderId,
-            { status },
-            { new: true, runValidators: true, context: 'query' }
-        ).populate(['customerId', 'branchId', 'assignedEmployee']);
+        const oldStatus = order.status;
+        order.status = status;
+        order.statusHistory.push({ status, updatedBy: req.user.id });
 
-        // Employee Logic: Move from Assigned to Completed
-        const isFinishing = ['READY', 'DELIVERED'].includes(status);
-        const wasAlreadyFinished = ['READY', 'DELIVERED'].includes(oldOrder.status);
-
-        if (order.assignedEmployee && isFinishing && !wasAlreadyFinished) {
+        // Logic for Task Completion
+        if (order.assignedEmployee && ['READY', 'DELIVERED'].includes(status) && !['READY', 'DELIVERED'].includes(oldStatus)) {
             await Employee.findOneAndUpdate(
-                { userId: order.assignedEmployee }, 
-                { $inc: { completedTasks: 1, assignedTasks: -1 } }
+                { userId: order.assignedEmployee },
+                { $inc: { completedTasks: 1, assignedTasks: -1 } },
+                { session }
             );
         }
 
-        // Inventory Logic: Auto-consume Detergent
-        if (status === 'WASHING' && oldOrder.status === 'PENDING') {
-            const detergent = await Inventory.findOne({ branchId: order.branchId, category: 'DETERGENT' });
-            if (detergent && detergent.currentStock > 0) {
-                detergent.currentStock -= 1;
-                detergent.reorderPending = detergent.currentStock <= detergent.reorderLevel;
-                await detergent.save();
-
-                await StockLog.create({
-                    inventoryId: detergent._id,
-                    branchId: order.branchId,
-                    performedBy: req.user.id,
-                    changeType: 'USAGE',
-                    quantityChanged: -1,
-                    newStockLevel: detergent.currentStock,
-                    reason: `Order ${order.orderNumber} Wash`,
-                    orderId: order._id
-                });
+        // Auto-Inventory Usage with Safety Check
+        if (status === 'WASHING' && oldStatus === 'PENDING') {
+            const detergent = await Inventory.findOne({ branchId: order.branchId, category: 'DETERGENT' }).session(session);
+            
+            if (!detergent || detergent.currentStock <= 0) {
+                // Professional touch: Prevent washing if there's no detergent
+                await session.abortTransaction();
+                return sendError(res, 400, "Insufficient detergent in stock to begin washing.");
             }
+
+            detergent.currentStock -= 1;
+            await detergent.save({ session });
+            await StockLog.create([{
+                inventoryId: detergent._id,
+                branchId: order.branchId,
+                performedBy: req.user.id,
+                changeType: 'USAGE',
+                quantityChanged: -1,
+                reason: `Order ${order.orderNumber} Wash`,
+                orderId: order._id
+            }], { session });
         }
 
-        return sendResponse(res, 200, true, `Status updated to ${status}`, { order });
+        await order.save({ session });
+        await session.commitTransaction();
+        return sendResponse(res, 200, true, `Status changed to ${status}`, { order });
     } catch (error) {
+        await session.abortTransaction();
         next(error);
-    }
-};
-
-export const deleteOrder = async (req, res, next) => {
-    try {
-        const { orderId } = req.params;
-        const order = await Order.findById(orderId);
-        if (!order) return sendError(res, 404, "Order not found");
-
-        // REVENUE & STATS LOGIC: Reverse the branch impact
-        const updateData = { $inc: { totalOrders: -1 } };
-
-        // If it was already paid, we must subtract the revenue too
-        if (order.paymentStatus === 'PAID') {
-            updateData.$inc.totalRevenue = -order.totalAmount;
-        }
-
-        await Branch.findByIdAndUpdate(order.branchId, updateData);
-
-        // Cleanup: If deleted, reduce assigned task count for the staff
-        if (order.assignedEmployee && !['READY', 'DELIVERED'].includes(order.status)) {
-            await Employee.findOneAndUpdate(
-                { userId: order.assignedEmployee }, 
-                { $inc: { assignedTasks: -1 } }
-            );
-        }
-
-        await Order.findByIdAndDelete(orderId);
-
-        logger.info(`Order ${order.orderNumber} deleted. Branch stats adjusted: ${JSON.stringify(updateData.$inc)}`)
-        return sendResponse(res, 200, true, "Order deleted and branch stats adjusted");
-    } catch (error) {
-        next(error);
+    } finally {
+        session.endSession();
     }
 };

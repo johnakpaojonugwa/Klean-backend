@@ -2,7 +2,9 @@ import Inventory from "../models/inventory.model.js";
 import StockLog from "../models/stockLog.model.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import { logger } from "../utils/logger.js";
+import mongoose from "mongoose";
 
+// Add Inventory Item
 export const addInventoryItem = async (req, res, next) => {
     try {
         const { branchId, itemName, category, currentStock, unit, reorderLevel, supplierContact } = req.body;
@@ -25,78 +27,61 @@ export const addInventoryItem = async (req, res, next) => {
     }
 };
 
+// Adjust Stock Levels
 export const adjustStock = async (req, res, next) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
     try {
         const { itemId } = req.params;
-        const { amount, changeType, reason, orderId } = req.body;
+        const { amount, changeType, reason, orderId } = req.body; 
 
-        // Fetch item first to get current stock
-        const currentItem = await Inventory.findById(itemId);
-        if (!currentItem) {
+        // Fetch item within session to prevent race conditions
+        const item = await Inventory.findById(itemId).session(session);
+        if (!item) {
+            await session.abortTransaction();
             return sendError(res, 404, "Inventory item not found");
         }
 
-        // Check if adjustment would go negative
-        if (amount < 0 && (currentItem.currentStock + amount) < 0) {
-            return sendError(
-                res,
-                400,
-                "Insufficient stock",
-                [`Cannot reduce stock below 0. Available: ${currentItem.currentStock} ${currentItem.unit}`]
-            );
+        // Prevent negative stock levels
+        if (amount < 0 && (item.currentStock + amount) < 0) {
+            await session.abortTransaction();
+            return sendError(res, 400, "Insufficient stock", [
+                `Current level: ${item.currentStock} ${item.unit}. Requested reduction: ${Math.abs(amount)}`
+            ]);
         }
 
-        // Use ATOMIC operation to avoid race conditions
-        const updatedItem = await Inventory.findByIdAndUpdate(
-            itemId,
-            {
-                $inc: { currentStock: amount },
-                $set: {
-                    reorderPending: (currentItem.currentStock + amount) <= currentItem.reorderLevel,
-                    updatedAt: new Date()
-                }
-            },
-            { new: true, runValidators: false }
-        ).select('-__v');
+        // Update stock and reorder flag
+        item.currentStock += amount;
+        item.reorderPending = item.currentStock <= item.reorderLevel;
+        await item.save({ session });
 
-        if (!updatedItem) {
-            return sendError(res, 404, "Inventory item not found");
-        }
-
-        // Verify the operation didn't result in negative stock
-        if (updatedItem.currentStock < 0) {
-            // Rollback if somehow it went negative 
-            await Inventory.findByIdAndUpdate(itemId, {
-                $inc: { currentStock: -amount }
-            });
-            return sendError(
-                res,
-                400,
-                "Insufficient stock for this adjustment"
-            );
-        }
-
-        // Create the log entry - this tracks the change
-        await StockLog.create({
-            inventoryId: updatedItem._id,
-            branchId: updatedItem.branchId,
+        // Create Stock Log (Audit Trail)
+        await StockLog.create([{
+            inventoryId: item._id,
+            branchId: item.branchId,
             performedBy: req.user.id,
             changeType: changeType || (amount > 0 ? 'RESTOCK' : 'USAGE'),
             quantityChanged: amount,
-            newStockLevel: updatedItem.currentStock,
-            reason,
+            newStockLevel: item.currentStock,
+            reason: reason || "Manual Adjustment",
             orderId
-        });
+        }], { session });
 
-        logger.info(`Stock adjusted for ${updatedItem.itemName}: ${amount > 0 ? '+' : ''}${amount} (New level: ${updatedItem.currentStock})`);
-        return sendResponse(res, 200, true, "Stock adjusted successfully", { item: updatedItem });
+        await session.commitTransaction();
+        
+        logger.info(`Stock adjusted for ${item.itemName}: ${amount > 0 ? '+' : ''}${amount} by User ${req.user.id}`);
+        return sendResponse(res, 200, true, "Stock adjusted successfully", { item });
 
     } catch (error) {
+        await session.abortTransaction();
         logger.error("Adjust stock error:", error.message);
         next(error);
+    } finally {
+        session.endSession();
     }
 };
 
+// Get Inventory by Branch with Filters
 export const getInventoryByBranch = async (req, res, next) => {
     try {
         const { branchId } = req.params;
@@ -108,49 +93,77 @@ export const getInventoryByBranch = async (req, res, next) => {
             query.$expr = { $lte: ['$currentStock', '$reorderLevel'] };
         }
 
-        const skip = (page - 1) * limit;
-        const items = await Inventory.find(query)
-            .populate('branchId', 'name')
-            .limit(parseInt(limit))
-            .skip(skip)
-            .sort({ createdAt: -1 });
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
 
-        const total = await Inventory.countDocuments(query);
+        const [items, total] = await Promise.all([
+            Inventory.find(query)
+                .populate('branchId', 'name')
+                .limit(limitNum)
+                .skip((pageNum - 1) * limitNum)
+                .sort({ currentStock: 1 }), // Sort by lowest stock first
+            Inventory.countDocuments(query)
+        ]);
 
-        logger.info(`Inventory items fetched from branch ${branchId}: ${items.length}`);
         return sendResponse(res, 200, true, "Inventory items retrieved", {
             items,
-            pagination: { total, page: parseInt(page), pages: Math.ceil(total / limit) }
+            pagination: { total, page: pageNum, pages: Math.ceil(total / limitNum) }
         });
     } catch (error) {
-        logger.error("Get inventory error:", error.message);
         next(error);
     }
 };
 
+// Update Inventory Item
 export const updateInventoryItem = async (req, res, next) => {
     try {
         const { itemId } = req.params;
-        const { currentStock, reorderLevel, supplierContact } = req.body;
+        const { 
+            itemName, 
+            category, 
+            sku, 
+            unit, 
+            costPerUnit, 
+            reorderLevel, 
+            supplierContact 
+        } = req.body;
 
         const item = await Inventory.findByIdAndUpdate(
             itemId,
-            { currentStock, reorderLevel, supplierContact },
+            { 
+                itemName, 
+                category, 
+                sku, 
+                unit, 
+                costPerUnit, 
+                reorderLevel, 
+                supplierContact 
+            },
             { new: true, runValidators: true }
         ).populate('branchId', 'name');
 
         if (!item) {
             return sendError(res, 404, "Inventory item not found");
         }
+        
+        const isLow = item.currentStock <= item.reorderLevel;
+        if (item.reorderPending !== isLow) {
+            item.reorderPending = isLow;
+            await item.save();
+        }
 
-        logger.info(`Inventory item updated: ${item.itemName}`);
-        return sendResponse(res, 200, true, "Inventory item updated", { item });
+        logger.info(`Inventory item [${item.itemName}] updated at branch [${item.branchId.name}]`);
+
+        return sendResponse(res, 200, true, "Inventory item updated successfully", { item });
     } catch (error) {
-        logger.error("Update inventory item error:", error.message);
+        if (error.name === 'ValidationError') {
+            return sendError(res, 400, "Invalid unit or category selection");
+        }
         next(error);
     }
 };
 
+// Delete Inventory Item
 export const deleteInventoryItem = async (req, res, next) => {
     try {
         const { itemId } = req.params;
