@@ -1,6 +1,7 @@
 import User from "../models/user.model.js";
 import { sendResponse, sendError } from "../utils/response.js";
 import { logger } from "../utils/logger.js";
+import mongoose from "mongoose";
 
 // Get all users
 export const getAllUsers = async (req, res, next) => {
@@ -11,12 +12,15 @@ export const getAllUsers = async (req, res, next) => {
         if (req.user.role === "BRANCH_MANAGER") {
             // Branch managers should only see STAFF, not other managers or admins
             query.role = { $in: ['STAFF'] };
-            query.branchId = req.user.branchId;
+            // Convert branchId to ObjectId for proper MongoDB comparison
+            if (req.user.branchId) {
+                query.branchId = new mongoose.Types.ObjectId(req.user.branchId);
+            }
         } else if (req.user.role === "SUPER_ADMIN") {
             // Super admins see all non-customer roles
             query.role = { $ne: 'CUSTOMER' };
             if (req.query.branchId) {
-                query.branchId = req.query.branchId;
+                query.branchId = new mongoose.Types.ObjectId(req.query.branchId);
             }
         }
 
@@ -73,7 +77,9 @@ export const getCustomers = async (req, res, next) => {
 
         // Branch isolation for Customers
         if (req.user.role === "BRANCH_MANAGER") {
-            query.branchId = req.user.branchId;
+            if (req.user.branchId) {
+                query.branchId = new mongoose.Types.ObjectId(req.user.branchId);
+            }
         }
 
         // Search by name or email

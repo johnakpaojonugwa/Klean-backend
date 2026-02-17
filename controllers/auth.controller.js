@@ -55,7 +55,7 @@ export const register = async (req, res, next) => {
             await smsService.sendWelcomeSMS(req.body.phoneNumber, user.fullname);
         }
 
-        const { accessToken, refreshToken } = generateTokens(user._id, user.role);
+        const { accessToken, refreshToken } = generateTokens(user._id, user.role, user.branchId);
 
         // Store refresh token securely
 
@@ -98,7 +98,7 @@ export const login = async (req, res, next) => {
             return sendError(res, 401, "Invalid credentials");
         }
 
-        const { accessToken, refreshToken } = generateTokens(user._id, user.role);
+        const { accessToken, refreshToken } = generateTokens(user._id, user.role, user.branchId);
 
         // Update last login
         await User.findByIdAndUpdate(user._id, { lastLogin: new Date() });
