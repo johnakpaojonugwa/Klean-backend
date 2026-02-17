@@ -86,12 +86,12 @@ export const validateCreateOrder = (req, res, next) => {
     }
 
     // Enum Validation (Optional but recommended for production)
-    const validPriorities = ['normal', 'express', 'urgent'];
+    const validPriorities = ['NORMAL', 'EXPRESS', 'URGENT'];
     if (priority && !validPriorities.includes(priority)) {
         errors.push(`Priority must be one of: ${validPriorities.join(", ")}`);
     }
 
-    const validStatuses = ['pending', 'processing', 'washing', 'drying', 'ironing', 'ready', 'delivered', 'cancelled'];
+    const validStatuses = ['PENDING', 'PROCESSING', 'WASHING', 'DRYING', 'IRONING', 'READY', 'DELIVERED', 'CANCELLED'];
     if (status && !validStatuses.includes(status)) {
         errors.push("Invalid order status provided");
     }
