@@ -10,7 +10,7 @@ import crypto from "crypto";
 // Helper to generate tokens
 const generateTokens = (userId, role) => {
     const accessToken = jwt.sign(
-        { id: userId, role },
+        { id: userId, role, branchId },
         process.env.JWT_SECRET,
         { expiresIn: process.env.JWT_EXPIRE || "1h" }
     );
@@ -110,7 +110,8 @@ export const login = async (req, res, next) => {
                 fullname: user.fullname,
                 email: user.email,
                 role: user.role,
-                avatar: user.avatar
+                avatar: user.avatar,
+                branchId: user.branchId,
             },
             accessToken,
             refreshToken
