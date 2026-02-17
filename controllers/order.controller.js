@@ -259,3 +259,43 @@ export const updateOrderStatus = async (req, res, next) => {
         session.endSession();
     }
 };
+
+// Delete Order
+export const deleteOrder = async (req, res, next) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+        const { orderId } = req.params;
+
+        const order = await Order.findById(orderId).session(session);
+        if (!order) {
+            await session.abortTransaction();
+            return sendError(res, 404, "Order not found");
+        }
+
+        // Rollback Stats if the order wasn't finished/cancelled yet
+        if (!['CANCELLED', 'DELIVERED'].includes(order.status)) {
+            await Branch.findByIdAndUpdate(order.branchId, { $inc: { totalOrders: -1 } }, { session });
+            
+            if (order.assignedEmployee) {
+                await Employee.findOneAndUpdate(
+                    { userId: order.assignedEmployee }, 
+                    { $inc: { assignedTasks: -1 } }, 
+                    { session }
+                );
+            }
+        }
+
+        await Order.findByIdAndDelete(orderId).session(session);
+
+        await session.commitTransaction();
+        session.endSession();
+
+        logger.info(`Order ${orderId} deleted by ${req.user.id}`);
+        return sendResponse(res, 200, true, "Order deleted successfully");
+    } catch (error) {
+        await session.abortTransaction();
+        session.endSession();
+        next(error);
+    }
+};
