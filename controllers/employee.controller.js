@@ -45,6 +45,7 @@ export const onboardEmployee = async (req, res, next) => {
         // Create the Employee Profile linked to that User
         const [newEmployee] = await Employee.create([{
             userId: newUser._id,
+            fullname,
             designation,
             department,
             branchId,
