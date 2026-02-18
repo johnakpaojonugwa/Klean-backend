@@ -78,6 +78,7 @@ export const getCustomers = async (req, res, next) => {
         // Branch isolation for Customers
         if (req.user.role === "BRANCH_MANAGER") {
             if (req.user.branchId) {
+                // Only assigned customers
                 query.branchId = new mongoose.Types.ObjectId(req.user.branchId);
             }
         }
