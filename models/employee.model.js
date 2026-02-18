@@ -6,6 +6,7 @@ const nanoid = customAlphabet("1234567890", 6);
 const employeeSchema = new mongoose.Schema({
     // Link to User account
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', unique: true, required: true },
+    salaryStructureId: { type: mongoose.Schema.Types.ObjectId, ref: 'SalaryStructure' },
 
     // Personal Information
     dateOfBirth: Date,
@@ -97,7 +98,10 @@ const employeeSchema = new mongoose.Schema({
     terminationReason: String,
     exitNotes: String
 
-}, { timestamps: true });
+}, { timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+});
 
 // Index for faster queries
 employeeSchema.index({ branchId: 1, role: 1 });
