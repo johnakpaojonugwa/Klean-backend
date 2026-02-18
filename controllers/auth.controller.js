@@ -8,15 +8,22 @@ import { emailService } from "../utils/emailService.js";
 import crypto from "crypto";
 
 // Helper to generate tokens
-const generateTokens = (userId, role, branchId = null) => {
+const generateTokens = (user) => {
+    const payload = { 
+        id: user._id, 
+        role: user.role, 
+        branchId: user.branchId,
+        phoneNumber: user.phoneNumber 
+    };
+
     const accessToken = jwt.sign(
-        { id: userId, role, branchId },
+        payload,
         process.env.JWT_SECRET,
         { expiresIn: process.env.JWT_EXPIRE || "1h" }
     );
 
     const refreshToken = jwt.sign(
-        { id: userId },
+        { id: user._id },
         process.env.JWT_REFRESH_SECRET,
         { expiresIn: process.env.JWT_REFRESH_EXPIRE || "7d" }
     );
@@ -27,8 +34,11 @@ const generateTokens = (userId, role, branchId = null) => {
 // Register
 export const register = async (req, res, next) => {
     try {
-        const { fullname, email, password, confirmPassword, role, branchId } = req.body || {};
+        const { fullname, email, phoneNumber, password, confirmPassword, role, branchId } = req.body || {};
 
+        // Role Guard
+        const publicRoles = ['CUSTOMER']; 
+        const assignedRole = publicRoles.includes(role?.toUpperCase()) ? role.toUpperCase() : 'CUSTOMER';
         // Check if user already exists
         const existingUser = await User.findOne({ email: email.toLowerCase() });
         if (existingUser) {
@@ -42,20 +52,23 @@ export const register = async (req, res, next) => {
         const user = await User.create({
             fullname: fullname.trim(),
             email: email.toLowerCase(),
+            phoneNumber: phoneNumber.trim(),
             password,
             confirmPassword,
-            role,
-            branchId: branchId || null, // Ensure branchId is set from the token or request body
+            role: assignedRole,
+            branchId: assignedRole === 'CUSTOMER' ? null : branchId, // Ensure branchId is set from the token or request body
             avatar
         });
 
         // welcome SMS
         if (user.role === 'CUSTOMER') {
             emailService.sendWelcomeEmail(user);
-            await smsService.sendWelcomeSMS(req.body.phoneNumber, user.fullname);
+            await smsService.sendWelcomeSMS(user.phoneNumber, user.fullname).catch(error => {
+                logger.error(`Background SMS delivery failed for ${user.phoneNumber}:`, error.message);
+            });
         }
 
-        const { accessToken, refreshToken } = generateTokens(user._id, user.role, user.branchId);
+        const { accessToken, refreshToken } = generateTokens(user);
 
         // Store refresh token securely
 
@@ -65,6 +78,7 @@ export const register = async (req, res, next) => {
             user: {
                 _id: user._id,
                 fullname: user.fullname,
+                phoneNumber: user.phoneNumber,
                 email: user.email,
                 role: user.role,
                 avatar: user.avatar,
@@ -139,7 +153,7 @@ export const refreshToken = async (req, res, next) => {
             return sendError(res, 401, "Invalid refresh token");
         }
 
-        const { accessToken, refreshToken: newRefreshToken } = generateTokens(user._id, user.role, user.branchId);
+        const { accessToken, refreshToken: newRefreshToken } = generateTokens(user._id, user.role, user.phoneNumber, user.branchId);
 
         return sendResponse(res, 200, true, "Token refreshed", {
             accessToken,
@@ -257,6 +271,7 @@ export const resetPassword = async (req, res, next) => {
             user: {
                 _id: user._id,
                 fullname: user.fullname,
+                phoneNumber: user.phoneNumber,
                 email: user.email,
                 role: user.role,
                 branchId: user.branchId,

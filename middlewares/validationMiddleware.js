@@ -1,7 +1,7 @@
 import { isValidEmail, isStrongPassword } from '../utils/validators.js';
 
 export const validateRegister = (req, res, next) => {
-    const { fullname, email, password, confirmPassword } = req.body || {};
+    const { fullname, email, phoneNumber, password, confirmPassword } = req.body || {};
 
     const errors = [];
 
@@ -10,6 +10,9 @@ export const validateRegister = (req, res, next) => {
     }
     if (!email || !isValidEmail(email)) {
         errors.push("Valid email is required");
+    }
+    if (!phoneNumber || phoneNumber.trim().length < 10) {
+        errors.push("Valid phone number is required");
     }
     if (!password || !isStrongPassword(password)) {
         errors.push("Password must be at least 8 characters with uppercase, number, and special character");

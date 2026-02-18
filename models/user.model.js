@@ -5,6 +5,7 @@ import bcryptjs from "bcryptjs";
 const userSchema = new mongoose.Schema({
     fullname: { type: String, required: true, trim: true },
     email: { type: String, unique: true, required: true, trim: true, lowercase: true },
+    phoneNumber: { type: String, unique: true, required: true, trim: true },    
     password: { type: String, required: true, select: false },
     role: {
         type: String,
@@ -25,20 +26,25 @@ const userSchema = new mongoose.Schema({
         default: 'active'
     },
     avatar: String,
-    isActive: { type: Boolean, default: true },
     lastLogin: Date,
     passwordResetToken: String,
     passwordResetExpires: Date,
 }, { timestamps: true });
 
+// Indexes
+userSchema.index({ email: 1 });
+userSchema.index({ passwordResetToken: 1 }); 
+userSchema.index({ branchId: 1, role: 1 });
+
 // Hash password only if modified (prevents double hashing)
-userSchema.pre('save', async function () {
+userSchema.pre('save', async function (next) {
     if (!this.isModified('password')) return;
     try {
         const salt = await bcryptjs.genSalt(10);
         this.password = await bcryptjs.hash(this.password, salt);
+        next();
     } catch (error) {
-        throw error;
+        next(error);
     }
 });
 
@@ -51,11 +57,10 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
 userSchema.methods.toJSON = function () {
     const obj = this.toObject();
     delete obj.password;
+    delete obj.passwordResetToken;
     return obj;
 };
 
-userSchema.index({ role: 1 });
-userSchema.index({ branchId: 1, role: 1 });
 
 const User = mongoose.model("User", userSchema);
 
