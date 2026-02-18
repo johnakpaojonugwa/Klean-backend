@@ -112,7 +112,7 @@ export const login = async (req, res, next) => {
             return sendError(res, 401, "Invalid credentials");
         }
 
-        const { accessToken, refreshToken } = generateTokens(user._id, user.role, user.branchId);
+        const { accessToken, refreshToken } = generateTokens(user);
 
         // Update last login
         await User.findByIdAndUpdate(user._id, { lastLogin: new Date() });
