@@ -140,7 +140,7 @@ export const getSingleUser = async (req, res, next) => {
 export const updateUser = async (req, res, next) => {
     try {
         const { userId } = req.params;
-        const { fullname, email, role, designation, department, branchId } = req.body;
+        const { fullname, email, phoneNumber, role, designation, department, branchId } = req.body;
         const avatar = req.files?.avatar?.[0]?.path;
 
         const user = await User.findById(userId);
@@ -160,6 +160,7 @@ export const updateUser = async (req, res, next) => {
         const updates = {};
         if (fullname) updates.fullname = fullname.trim();
         if (email) updates.email = email.trim().toLowerCase();
+        if (phoneNumber) updates.phoneNumber = phoneNumber.trim();
         if (avatar) updates.avatar = avatar;
         if (designation) updates.designation = designation;
         if (department) updates.department = department;
@@ -170,6 +171,9 @@ export const updateUser = async (req, res, next) => {
         }
         if (branchId && req.user.role === "SUPER_ADMIN") {
             updates.branchId = branchId || null;  // Allow clearing branchId too
+        }
+        if (branchId && req.user.role === "SUPER_ADMIN") {
+            updates.phoneNumber = phoneNumber.trim() || null;
         }
 
         if (Object.keys(updates).length === 0) return sendError(res, 400, "No changes detected");
