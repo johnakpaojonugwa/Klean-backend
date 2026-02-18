@@ -140,7 +140,7 @@ export const getSingleUser = async (req, res, next) => {
 export const updateUser = async (req, res, next) => {
     try {
         const { userId } = req.params;
-        const { fullname, email, role, designation, department } = req.body;
+        const { fullname, email, role, designation, department, branchId } = req.body;
         const avatar = req.files?.avatar?.[0]?.path;
 
         const user = await User.findById(userId);
@@ -164,8 +164,12 @@ export const updateUser = async (req, res, next) => {
         if (designation) updates.designation = designation;
         if (department) updates.department = department;
 
+        // Only SUPER_ADMIN can update role and branchId
         if (role && req.user.role === "SUPER_ADMIN") {
             updates.role = role;
+        }
+        if (branchId && req.user.role === "SUPER_ADMIN") {
+            updates.branchId = branchId || null;  // Allow clearing branchId too
         }
 
         if (Object.keys(updates).length === 0) return sendError(res, 400, "No changes detected");
