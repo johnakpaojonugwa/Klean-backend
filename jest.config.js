@@ -6,6 +6,7 @@ export default {
   bail: false,
   verbose: true,
   injectGlobals: true,
+  transform: {},
   setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],
   collectCoverageFrom: [
     '**/*.js',

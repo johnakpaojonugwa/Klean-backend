@@ -100,7 +100,7 @@ export const login = async (req, res, next) => {
 
         // Find user and explicitly select password field
         const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
-        if (!user || !user.isActive) {
+        if (!user || user.status !== 'active') {
             logger.warn(`Login attempt failed for email: ${email}`);
             return sendError(res, 401, "Invalid credentials");
         }
