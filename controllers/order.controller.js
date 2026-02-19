@@ -14,7 +14,7 @@ export const createOrder = async (req, res, next) => {
     try {
         const {
             customerId, branchId, customerName, customerPhone,
-            items, pickupDate, deliveryDate, priority, discount, serviceType
+            items, pickupDate, deliveryDate, priority, discount, totalAmount
         } = req.body;
 
         const effectiveBranchId = req.user.role === 'CUSTOMER' ? req.user.branchId : branchId;
@@ -30,9 +30,9 @@ export const createOrder = async (req, res, next) => {
             items,
             pickupDate,
             deliveryDate,
-            serviceType,
             priority: priority?.toUpperCase() || 'NORMAL',
             discount: discount || 0,
+            totalAmount: totalAmount || 0,
             createdBy: req.user.id,
             status: 'PENDING',
             paymentStatus: 'UNPAID'

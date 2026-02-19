@@ -85,7 +85,7 @@ const orderSchema = new mongoose.Schema({
     discount: { type: Number, default: 0 },
     tax: { type: Number, default: 0 },
     subtotal: { type: Number, default: 0 }, // Sum of items * priority
-    totalAmount: { type: Number, required: true }, 
+    totalAmount: { type: Number, default: 0 }, 
     
     notes: { type: String },
 }, { timestamps: true });
