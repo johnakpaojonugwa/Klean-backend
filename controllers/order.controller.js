@@ -20,7 +20,11 @@ export const createOrder = async (req, res, next) => {
         const effectiveBranchId = req.user.role === 'CUSTOMER' ? req.user.branchId : branchId;
         const effectiveCustomerId = req.user.role === 'CUSTOMER' ? req.user.id : customerId;
 
-        if (!effectiveBranchId) return sendError(res, 400, "Branch assignment is required.");
+        if (!effectiveBranchId) {
+            await session.abortTransaction();
+            session.endSession();
+            return sendError(res, 400, "Branch assignment is required.");
+        }
 
         const order = new Order({
             customerId: effectiveCustomerId,
@@ -33,13 +37,13 @@ export const createOrder = async (req, res, next) => {
             priority: priority?.toUpperCase() || 'NORMAL',
             discount: discount || 0,
             totalAmount: totalAmount || 0,
-            createdBy: req.user.id,
+            createdBy: req.user.id || req.user._id,
             status: 'PENDING',
             paymentStatus: 'UNPAID'
         });
 
         await order.save({ session });
-        await Branch.findByIdAndUpdate(effectiveBranchId, { $inc: { totalOrders: 1 } }, { session });
+        await Branch.findByIdAndUpdate(effectiveBranchId, { $inc: { totalOrders: 1 } }, { session, new: true });
 
         await session.commitTransaction();
         session.endSession();
@@ -49,7 +53,9 @@ export const createOrder = async (req, res, next) => {
 
         return sendResponse(res, 201, true, "Order created successfully", { order: populatedOrder });
     } catch (error) {
-        await session.abortTransaction();
+        if (session.inTransaction()) {
+            await session.abortTransaction();
+        }
         session.endSession();
         next(error);
     }

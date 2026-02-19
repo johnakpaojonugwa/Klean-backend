@@ -98,7 +98,7 @@ orderSchema.index({ customerId: 1, createdAt: -1 });
  * MIDDLEWARE: Automatic Price Calculation
  * Only runs on .save() to ensure data consistency
  */
-orderSchema.pre('save', function (next) {
+orderSchema.pre('save', function () {
     // Only recalculate if price-impacting fields change
     if (this.isModified('items') || this.isModified('priority') || this.isModified('discount')) {
         let itemsTotal = 0;
@@ -130,8 +130,6 @@ orderSchema.pre('save', function (next) {
             updatedAt: new Date()
         });
     }
-
-    next();
 });
 
 const Order = mongoose.model("Order", orderSchema);
