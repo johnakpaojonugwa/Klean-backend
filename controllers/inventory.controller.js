@@ -7,7 +7,7 @@ import mongoose from "mongoose";
 // Add Inventory Item
 export const addInventoryItem = async (req, res, next) => {
     try {
-        const { branchId, itemName, category, currentStock, unit, reorderLevel, supplierContact } = req.body;
+        const { branchId, itemName, category, currentStock, unit, reorderLevel, supplierContact, lastRestocked } = req.body;
 
         const item = await Inventory.create({
             branchId,
@@ -16,7 +16,8 @@ export const addInventoryItem = async (req, res, next) => {
             currentStock,
             unit,
             reorderLevel,
-            supplierContact
+            supplierContact,
+            lastRestocked,
         });
 
         logger.info(`Inventory item added: ${itemName} in branch ${branchId}`);
@@ -33,7 +34,7 @@ export const adjustStock = async (req, res, next) => {
     session.startTransaction();
     try {
         const { itemId } = req.params;
-        const { amount, changeType, reason, orderId } = req.body; 
+        const { amount, changeType, reason, orderId } = req.body;
 
         // Fetch item within session to prevent race conditions
         const item = await Inventory.findById(itemId).session(session);
@@ -49,6 +50,11 @@ export const adjustStock = async (req, res, next) => {
                 `Current level: ${item.currentStock} ${item.unit}. Requested reduction: ${Math.abs(amount)}`
             ]);
         }
+
+        // Automatic Timestamp
+        if (amount > 0) {
+            item.lastRestocked = new Date();
+        };
 
         // Update stock and reorder flag
         item.currentStock += amount;
@@ -68,7 +74,7 @@ export const adjustStock = async (req, res, next) => {
         }], { session });
 
         await session.commitTransaction();
-        
+
         logger.info(`Stock adjusted for ${item.itemName}: ${amount > 0 ? '+' : ''}${amount} by User ${req.user.id}`);
         return sendResponse(res, 200, true, "Stock adjusted successfully", { item });
 
@@ -118,26 +124,28 @@ export const getInventoryByBranch = async (req, res, next) => {
 export const updateInventoryItem = async (req, res, next) => {
     try {
         const { itemId } = req.params;
-        const { 
-            itemName, 
-            category, 
-            sku, 
-            unit, 
-            costPerUnit, 
-            reorderLevel, 
-            supplierContact 
+        const {
+            itemName,
+            category,
+            sku,
+            unit,
+            costPerUnit,
+            reorderLevel,
+            supplierContact,
+            lastRestocked
         } = req.body;
 
         const item = await Inventory.findByIdAndUpdate(
             itemId,
-            { 
-                itemName, 
-                category, 
-                sku, 
-                unit, 
-                costPerUnit, 
-                reorderLevel, 
-                supplierContact 
+            {
+                itemName,
+                category,
+                sku,
+                unit,
+                costPerUnit,
+                reorderLevel,
+                supplierContact,
+                lastRestocked
             },
             { new: true, runValidators: true }
         ).populate('branchId', 'name');
@@ -145,7 +153,7 @@ export const updateInventoryItem = async (req, res, next) => {
         if (!item) {
             return sendError(res, 404, "Inventory item not found");
         }
-        
+
         const isLow = item.currentStock <= item.reorderLevel;
         if (item.reorderPending !== isLow) {
             item.reorderPending = isLow;
