@@ -182,6 +182,41 @@ export const getOrders = async (req, res, next) => {
   }
 };
 
+// Get Single Order
+export const getOrderById = async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+    const order = await Order.findById(orderId).populate([
+      "customerId", 
+      "branchId", 
+      "assignedEmployee", 
+      "createdBy", 
+      "statusHistory.updatedBy",
+    ]);
+
+    if (!order) return sendError(res, 404, "Order not found");
+
+    // Permissions Check
+    const isCustomerOwner =
+      req.user.role === "CUSTOMER" &&
+      order.customerId?._id?.toString() === req.user.id;
+      
+    const isBranchStaff =
+      (req.user.role === "BRANCH_MANAGER" || req.user.role === "STAFF") &&
+      order.branchId?._id?.toString() === req.user.branchId?.toString();
+      
+    const isSuperAdmin = req.user.role === "SUPER_ADMIN";
+
+    if (!isCustomerOwner && !isBranchStaff && !isSuperAdmin) {
+      return sendError(res, 403, "You do not have permission to view this order.");
+    }
+
+    return sendResponse(res, 200, true, "Order retrieved", { order });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // Update Order (General)
 export const updateOrder = async (req, res, next) => {
   const session = await mongoose.startSession();
