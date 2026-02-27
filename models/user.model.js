@@ -32,7 +32,6 @@ const userSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Indexes
-userSchema.index({ email: 1 });
 userSchema.index({ passwordResetToken: 1 }); 
 userSchema.index({ branchId: 1, role: 1 });
 
