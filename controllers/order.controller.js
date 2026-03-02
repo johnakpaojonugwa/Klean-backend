@@ -10,7 +10,7 @@ import mongoose from "mongoose";
 // Inventory Deductions
 const INVENTORY_TRANSITIONS = [
   {
-    from: "PENDING",
+    from: "PROCESSING",
     to: "WASHING",
     category: "detergent",
     quantity: 1,
